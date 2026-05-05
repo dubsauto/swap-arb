@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SWAPARB - Dashboard</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/assets/ui.css">
+
+  <style>
+    .ui-shell { display: flex; min-height: 100vh; }
+    .ui-role-picker { position: relative; }
+    .ui-role-menu { 
+      display: none; 
+      position: absolute; 
+      background: white; 
+      border: 1px solid #ddd; 
+      z-index: 100; 
+      min-width: 180px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      padding: 6px 0;
+    }
+    .ui-role-picker.open .ui-role-menu { display: block; }
+    .disabled { opacity: 0.6; pointer-events: none; cursor: not-allowed; }
+    .log-info { color: #00c853; font-weight: 500; }
+    .log-error { color: #ff1744; font-weight: 600; }
+    .log-warning { color: #ff9100; font-weight: 500; }
+    .log-trade { color: #00b0ff; font-weight: 600; }
+    .log-default { color: #cfd8dc; }
+  </style>
+</head>
+<body class="ui-body ui-dashboard-page" data-activity-page="dashboard">
+
+<div class="ui-shell">
+
+  <!-- Sidebar -->
+  <aside class="ui-sidebar">
+    <nav class="ui-nav">
+      <a class="ui-nav-item active" href="/app">
+        <span class="ui-ico ui-ico-badge">D</span> Dashboard - hub
+      </a>
+
+      <a class="ui-nav-item ui-nav-item-book" href="/profile-manage" id="profileManageLink">
+        <span class="ui-ico ui-ico-badge">P</span>
+        <span class="ui-nav-text">Manage Users - 🎯</span>
+        <span id="pendingApprovalsBadge" class="ui-nav-badge">0</span>
+      </a>
+
+      <a class="ui-nav-item ui-nav-item-book" href="/profile-activity" id="profileActivityLink">
+        <span class="ui-ico ui-ico-badge">A</span>
+        <span class="ui-nav-text">Users Activity - 🎯</span>
+      </a>
+
+      <a class="ui-nav-item" href="#" id="logoutBtn">
+        <span class="ui-ico ui-ico-badge">L</span> Logout
+      </a>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="ui-main">
+    <header class="ui-topbar">
+      <div class="ui-pill-row ui-top-pills">
+        <span class="ui-pill ui-pill-equal" id="rolePill">Role: User</span>
+        <span class="ui-pill ui-pill-equal" id="tradingPill">Trading: Disabled</span>
+        <span class="ui-pill ui-pill-equal" id="mt5Count">Slots: 0</span>
+      </div>
+
+      <div class="ui-top-right ms-auto">
+        <div class="ui-pill ui-pill-equal">
+          <span id="sysDot" class="ui-dot online"></span>
+          <span id="sysText">System Online</span>
+        </div>
+        <div class="ui-user">
+          <div class="ui-avatar" id="userAvatar">U</div>
+          <div class="ui-user-meta">
+            <div class="ui-user-name" id="usernameDisplay">Loading...</div>
+            <div class="ui-user-role" id="userRoleDisplay">User</div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <div class="ui-content">
+      <section class="ui-center">
+
+        <!-- Account Selector + Live Status -->
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <div>
+            <div class="ui-h1">Swap Dashboard</div>
+            <div class="ui-sub" id="welcomeSub">Welcome back</div>
+          </div>
+        </div>
+
+
+        <!-- Account Cards -->
+        <div id="accountCards" class="mb-4"></div>
+
+      </section>
+    </div>
+  </main>
+</div>
+
+<script>
+const token = localStorage.getItem("token");
+if (!token) window.location.href = "/";
+
+const formatMoney = (v) => {
+  if (v === null || v === undefined) return "N/A";
+  if (typeof v === "number") {
+    return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return v;
+};
+
+let canTrade = false;
+
+
+// Logout
+document.getElementById("logoutBtn").addEventListener("click", () => {
+  localStorage.removeItem("token");
+  window.location.href = "/";
+});
+
+async function loadDashboard() {
+  try {
+    const res = await fetch("/dashboard", { headers: { "Authorization": "Bearer " + token } });
+    if (res.status === 401) { localStorage.removeItem("token"); window.location.href = "/"; return; }
+    const userData = await res.json();
+    const isAdmin = userData.role === "admin";
+
+    const profileManageLink = document.getElementById("profileManageLink");
+    const profileActivityLink = document.getElementById("profileActivityLink");
+    const liveCalculatorLink = document.getElementById("liveCalculatorLink");
+
+    if (!isAdmin) {
+      if (profileManageLink) profileManageLink.style.display = "none";
+      if (profileActivityLink) profileActivityLink.style.display = "none";
+    }
+
+    document.getElementById("rolePill").textContent = `Role: ${isAdmin ? 'Admin' : 'User'}`;
+    document.getElementById("userRoleDisplay").textContent = isAdmin ? 'Admin' : 'User';
+    document.getElementById("usernameDisplay").textContent = userData.username || "User";
+    document.getElementById("userAvatar").textContent = (userData.username || "U").slice(0,1).toUpperCase();
+
+    if (isAdmin) {
+      updatePendingBadge();
+      setInterval(updatePendingBadge, 10000);
+    }
+
+    canTrade = userData.can_trade || false;
+    document.getElementById("tradingPill").textContent = `Trading: ${canTrade ? 'Enabled' : 'Disabled'}`;
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+
+
+async function updatePendingBadge() {
+  try {
+    const res = await fetch("/admin/profiles", { headers: { "Authorization": "Bearer " + token } });
+    const data = await res.json();
+    const count = data.pending_count || 0;
+    const badge = document.getElementById("pendingApprovalsBadge");
+    if (!badge) return;
+    badge.textContent = count;
+    badge.style.display = count > 0 ? "inline-block" : "none";
+  } catch (err) {
+    console.error("Failed to load pending badge", err);
+  }
+}
+
+// Start
+loadDashboard();
+startHeartbeat("dashboard");
+</script>
+</body>
+</html>

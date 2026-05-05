@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign In — SwapArb</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Serif+Display&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      background: #f4f3f0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    .shell { width: 100%; max-width: 420px; }
+
+    .brand {
+      font-family: 'DM Serif Display', serif;
+      font-size: 24px;
+      color: #0a0a0a;
+      margin-bottom: 1.5rem;
+      letter-spacing: -0.3px;
+    }
+
+    .card {
+      background: #fff;
+      border: 0.5px solid rgba(0,0,0,0.12);
+      border-radius: 16px;
+      padding: 2.25rem 2rem;
+    }
+
+    .card-title { font-size: 20px; font-weight: 500; color: #0a0a0a; margin-bottom: 1.5rem; }
+
+    .alert-box {
+      border-radius: 8px; padding: .75rem 1rem;
+      font-size: 13.5px; margin-bottom: 1rem; display: none;
+    }
+    .alert-box.show   { display: block; }
+    .alert-box.danger { background: #fdecea; color: #922b21; border: 0.5px solid #f5c6c2; }
+
+    .field { margin-bottom: .85rem; }
+    .field label { display: block; font-size: 13px; font-weight: 500; color: #555; margin-bottom: 4px; }
+    .field input {
+      width: 100%; height: 42px;
+      border: 0.5px solid rgba(0,0,0,0.2); border-radius: 8px;
+      padding: 0 12px; font-size: 14px; font-family: 'DM Sans', sans-serif;
+      color: #0a0a0a; background: #fff; outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .field input:focus { border-color: #0F6E56; box-shadow: 0 0 0 3px rgba(15,110,86,.1); }
+
+    .pw-wrap { position: relative; }
+    .pw-wrap input { padding-right: 42px; }
+    .pw-eye {
+      position: absolute; right: 12px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; cursor: pointer;
+      color: #888; padding: 0; display: flex; align-items: center;
+    }
+    .pw-eye:hover { color: #0F6E56; }
+
+    .remember-row {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 1.25rem;
+    }
+    .remember-row input[type="checkbox"] {
+      width: 16px; height: 16px; accent-color: #0F6E56; cursor: pointer;
+    }
+    .remember-row label { font-size: 13.5px; color: #555; cursor: pointer; user-select: none; }
+
+    .btn-primary {
+      width:100%;
+      height:44px;
+      border:1px solid #d9e0e7;
+      border-radius:12px;
+      background:#f6f8fb;
+      color:#5d6470;
+      font-size:15px;
+      font-weight:700;
+      box-shadow:inset 0 0 0 2px rgba(255,255,255,.96), 0 8px 18px rgba(49,57,74,.06);
+    }
+    .btn-primary:hover  { 
+      background:#f1f4f7;
+      border-color:#c8d1dc;
+     }
+    .btn-primary:active { transform: scale(.98); }
+    .btn-primary:disabled { opacity: .6; cursor: not-allowed; }
+
+    .foot { font-size: 13px; color: #888; text-align: center; margin-top: 1.25rem; }
+    .foot a { color: #0F6E56; text-decoration: none; font-weight: 500; }
+    .foot a:hover { text-decoration: underline; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.35); border-top-color: #fff;
+      border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="shell">
+  <div class="brand">SwapArb</div>
+
+  <div class="card">
+    <div class="card-title">Sign in to your account</div>
+
+    <div class="alert-box" id="alertBox"></div>
+
+    <form id="loginForm" novalidate>
+      <div class="field">
+        <label for="identifier">Email address</label>
+        <input id="identifier" type="email" placeholder="ada@example.com" autocomplete="username" required>
+      </div>
+
+      <div class="field">
+        <label for="password">Password</label>
+        <div class="pw-wrap">
+          <input id="password" type="password" placeholder="Your password" autocomplete="current-password" required>
+          <button type="button" class="pw-eye" onclick="togglePw()" aria-label="Toggle password">
+            <svg id="eyeOpen" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.477 0 8.268 2.943 9.542 7-1.274 4.057-5.065 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+            <svg id="eyeClosed" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" style="display:none"><path stroke-linecap="round" stroke-linejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.477 0-8.268-2.943-9.542-7a9.97 9.97 0 011.563-3.029m5.858.908l3.42 3.42M3 3l18 18"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="remember-row">
+        <input type="checkbox" id="rememberMe">
+        <label for="rememberMe">Remember me on this device</label>
+      </div>
+
+      <button type="submit" class="btn-primary" id="submitBtn">Sign in</button>
+    </form>
+
+    <p class="foot">Don't have an account? <a href="/signup">Create one</a></p>
+  </div>
+</div>
+
+<script>
+  /* ── password toggle ── */
+  function togglePw() {
+    const input  = document.getElementById('password');
+    const hidden = input.type === 'password';
+    input.type = hidden ? 'text' : 'password';
+    document.getElementById('eyeOpen').style.display   = hidden ? 'none' : '';
+    document.getElementById('eyeClosed').style.display = hidden ? ''     : 'none';
+  }
+
+  /* ── restore remembered email ── */
+  const saved = localStorage.getItem('sa_login_email_v1');
+  if (saved) {
+    document.getElementById('identifier').value   = saved;
+    document.getElementById('rememberMe').checked = true;
+  }
+
+  /*
+   * ── routing table ────────────────────────────────────────────
+   *
+   *  approval_status  │  onboarding_step       │  destination
+   *  ─────────────────┼────────────────────────┼──────────────
+   *  approved         │  (any)                 │  /app
+   *  pending          │  (any)                 │  /onboarding
+   *  rejected         │  (any)                 │  show error (blocked at /login)
+   *
+   * Admins (role === "admin") always go to /app regardless.
+   */
+  function resolveDestination(user) {
+    if (user.role === 'admin')              return '/app';
+    if (user.approval_status === 'approved') return '/app';
+    return '/onboarding';   // pending — setup not complete or awaiting admin
+  }
+
+  /* ── login ── */
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const alertBox   = document.getElementById('alertBox');
+    const submitBtn  = document.getElementById('submitBtn');
+    const identifier = document.getElementById('identifier').value.trim();
+    const password   = document.getElementById('password').value;
+
+    alertBox.className = 'alert-box';
+
+    if (!identifier || !password) {
+      alertBox.textContent = 'Please enter your email and password.';
+      alertBox.className   = 'alert-box show danger';
+      return;
+    }
+
+    submitBtn.disabled  = true;
+    submitBtn.innerHTML = '<span class="spinner"></span>Signing in…';
+
+    try {
+      /* 1. Exchange credentials for a token */
+      const loginRes  = await fetch('/login', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ identifier, password }),
+      });
+      const loginData = await loginRes.json();
+
+      if (!loginRes.ok) {
+        alertBox.textContent = loginData.detail || 'Invalid email or password.';
+        alertBox.className   = 'alert-box show danger';
+        return;
+      }
+
+      /* 2. Persist the token */
+      localStorage.setItem('token', loginData.access_token);
+
+      if (document.getElementById('rememberMe').checked) {
+        localStorage.setItem('sa_login_email_v1', identifier);
+      } else {
+        localStorage.removeItem('sa_login_email_v1');
+      }
+
+      /* 3. Fetch full profile — this drives all routing decisions */
+      const meRes  = await fetch('/me', {
+        headers: { Authorization: 'Bearer ' + loginData.access_token },
+      });
+
+      if (!meRes.ok) {
+        // Shouldn't happen right after login, but fall back safely
+        window.location.href = '/onboarding';
+        return;
+      }
+
+      const user = await meRes.json();
+
+      /* 4. Route */
+      window.location.href = resolveDestination(user);
+
+    } catch {
+      alertBox.textContent = 'Connection error. Please try again.';
+      alertBox.className   = 'alert-box show danger';
+
+    } finally {
+      submitBtn.disabled  = false;
+      submitBtn.innerHTML = 'Sign in';
+    }
+  });
+</script>
+
+</body>
+</html>

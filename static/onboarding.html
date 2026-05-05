@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Setup — SwapArb</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --green:       #0F6E56;
+      --green-dark:  #085041;
+      --green-light: #e6f7f1;
+      --green-xlight:#f0faf6;
+      --green-mid:   #9FE1CB;
+      --border:      rgba(0,0,0,0.11);
+      --border-med:  rgba(0,0,0,0.18);
+      --text:        #0a0a0a;
+      --muted:       #5a5a5a;
+      --subtle:      #9a9a9a;
+      --bg:          #f4f3f0;
+      --card:        #fff;
+      --amber-bg:    #fdf6e3;
+      --amber-border:#e8c84a;
+      --amber-text:  #7a5a0a;
+      --price-tag:   #0a0a0a;
+    }
+
+    body {
+      font-family: 'DM Sans', sans-serif;
+      min-height: 100vh;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem 5rem;
+    }
+
+    /* ── topbar ── */
+    .topbar {
+      width: 100%; max-width: 680px;
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 2.5rem;
+    }
+    .brand {
+      font-family: 'DM Serif Display', serif;
+      font-size: 22px; color: var(--text); letter-spacing: -0.3px;
+    }
+    .logout-btn {
+      font-size: 12.5px; color: var(--muted); background: none;
+      border: 0.5px solid var(--border); border-radius: 7px;
+      padding: 5px 14px; cursor: pointer; font-family: inherit;
+      transition: background .15s;
+    }
+    .logout-btn:hover { background: rgba(0,0,0,0.05); }
+
+    .container { width: 100%; max-width: 680px; }
+
+    /* ── page heading ── */
+    .page-heading { font-size: 24px; font-weight: 500; color: var(--text); margin-bottom: .3rem; letter-spacing: -0.4px; }
+    .page-sub { font-size: 14px; color: var(--muted); margin-bottom: 2.25rem; line-height: 1.6; }
+
+    /* ── progress ── */
+    .progress-track {
+      display: flex; align-items: flex-start;
+      margin-bottom: 2.5rem; position: relative;
+    }
+    .progress-line {
+      position: absolute; top: 13px; left: 14px; right: 14px;
+      height: 1.5px; background: var(--border); z-index: 0;
+    }
+    .progress-fill {
+      height: 100%; background: var(--green-mid);
+      transition: width .4s ease; width: 0%;
+    }
+    .pt-step {
+      flex: 1; display: flex; flex-direction: column; align-items: center;
+      gap: 7px; position: relative; z-index: 1;
+    }
+    .pt-circle {
+      width: 27px; height: 27px; border-radius: 50%;
+      background: var(--bg); border: 1.5px solid #ccc;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11.5px; font-weight: 600; color: var(--subtle);
+      transition: all .3s;
+    }
+    .pt-step.done   .pt-circle { background: var(--green-mid); border-color: var(--green-mid); color: var(--green-dark); }
+    .pt-step.active .pt-circle { background: var(--green); border-color: var(--green); color: #fff; box-shadow: 0 0 0 4px rgba(15,110,86,.12); }
+    .pt-step.done .pt-circle::after {
+      content: ''; display: block; width: 9px; height: 5px;
+      border-left: 2px solid var(--green-dark); border-bottom: 2px solid var(--green-dark);
+      transform: rotate(-45deg) translateY(-1px);
+    }
+    .pt-step.done .pt-num { display: none; }
+    .pt-label { font-size: 10px; color: var(--subtle); text-align: center; line-height: 1.3; max-width: 68px; }
+    .pt-step.active .pt-label { color: var(--green); font-weight: 600; }
+    .pt-step.done   .pt-label { color: var(--green-dark); }
+
+    /* ── card ── */
+    .card {
+      background: var(--card);
+      border: 0.5px solid var(--border);
+      border-radius: 18px;
+      padding: 2.25rem 2rem;
+    }
+
+    .step-eyebrow { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--subtle); margin-bottom: 4px; }
+    .step-title { font-size: 21px; font-weight: 500; color: var(--text); margin-bottom: 1.25rem; letter-spacing: -0.3px; line-height: 1.25; }
+
+    .info-box {
+      background: var(--green-xlight); border-left: 3px solid var(--green);
+      border-radius: 0 8px 8px 0; padding: .8rem 1rem;
+      font-size: 13.5px; color: #2a5a49; line-height: 1.6; margin-bottom: 1.5rem;
+    }
+
+    .warn-box {
+      display: flex; align-items: flex-start; gap: 9px;
+      background: var(--amber-bg); border: 0.5px solid var(--amber-border);
+      border-radius: 9px; padding: .75rem 1rem;
+      font-size: 13px; color: var(--amber-text); margin-bottom: 1.25rem; line-height: 1.5;
+    }
+    .warn-box svg { flex-shrink: 0; margin-top: 1px; }
+
+    /* ── broker cards ── */
+    .broker-card {
+      border: 0.5px solid var(--border); border-radius: 12px;
+      padding: 1.1rem 1.25rem; margin-bottom: .75rem;
+    }
+    .broker-card-title { font-size: 15px; font-weight: 500; color: var(--text); margin-bottom: 3px; }
+    .broker-card-desc { font-size: 13px; color: var(--muted); line-height: 1.55; margin-bottom: .85rem; }
+    .link-btn {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 13px; font-weight: 500; color: var(--green);
+      border: 0.5px solid var(--green); border-radius: 7px;
+      padding: 6px 14px; text-decoration: none;
+      transition: background .15s; font-family: inherit;
+      background: none; cursor: pointer;
+    }
+    .link-btn:hover { background: var(--green-light); }
+
+    /* ── slot picker ── */
+    .slot-section-label {
+      font-size: 12px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: .08em; color: var(--subtle); margin-bottom: .85rem;
+    }
+
+    .slot-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      margin-bottom: 1.25rem;
+    }
+    .slot-option {
+      border: 1.5px solid var(--border); border-radius: 12px;
+      padding: .85rem .5rem; text-align: center; cursor: pointer;
+      transition: border-color .15s, background .15s, transform .1s;
+      user-select: none;
+    }
+    .slot-option:hover { border-color: var(--green); background: var(--green-xlight); }
+    .slot-option.selected {
+      border-color: var(--green); background: var(--green-xlight);
+      box-shadow: 0 0 0 2px rgba(15,110,86,.15);
+    }
+    .slot-option .slot-num {
+      font-size: 24px; font-weight: 600; color: var(--text); line-height: 1;
+      margin-bottom: 3px;
+    }
+    .slot-option .slot-lbl { font-size: 11px; color: var(--muted); }
+    .slot-option.selected .slot-num { color: var(--green); }
+
+    /* ── pricing summary ── */
+    .pricing-bar {
+      background: #f8f8f6; border: 0.5px solid var(--border);
+      border-radius: 12px; padding: 1rem 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .pricing-row {
+      display: flex; align-items: baseline; justify-content: space-between;
+      font-size: 13.5px; color: var(--muted);
+    }
+    .pricing-row + .pricing-row { margin-top: .4rem; }
+    .pricing-row.total {
+      font-size: 16px; font-weight: 600; color: var(--text);
+      margin-top: .75rem; padding-top: .75rem;
+      border-top: 0.5px solid var(--border);
+    }
+    .pricing-row .val { color: var(--text); font-weight: 500; }
+    .pricing-row.total .val { color: var(--green); font-size: 20px; font-weight: 700; }
+
+    /* ── USDT payment ── */
+    .usdt-box {
+      background: #f8f9ff; border: 0.5px solid #c5cde8;
+      border-radius: 12px; padding: 1.25rem; margin-bottom: 1rem;
+    }
+    .network-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: #fff3cd; border: 0.5px solid #ffc107;
+      border-radius: 20px; padding: 3px 10px;
+      font-size: 11.5px; font-weight: 600; color: #7a5f10; margin-bottom: .85rem;
+    }
+    .usdt-label { font-size: 11px; color: var(--subtle); margin-bottom: 5px; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; }
+    .address-row { display: flex; align-items: stretch; gap: 8px; }
+    .address-box {
+      flex: 1; font-family: 'Courier New', monospace;
+      font-size: 12.5px; color: var(--text);
+      background: #fff; border: 0.5px solid var(--border);
+      border-radius: 8px; padding: 9px 12px;
+      word-break: break-all; line-height: 1.5; user-select: all;
+    }
+    .copy-btn {
+      flex-shrink: 0; padding: 0 14px;
+      background: var(--green); color: #fff;
+      border: none; border-radius: 8px;
+      font-size: 13px; font-weight: 500; font-family: inherit;
+      cursor: pointer; transition: background .15s;
+      display: flex; align-items: center; gap: 5px; white-space: nowrap;
+    }
+    .copy-btn:hover { background: var(--green-dark); }
+    .copy-btn.copied { background: #1a7a60; }
+    .amount-row {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-top: .85rem; padding-top: .85rem;
+      border-top: 0.5px solid var(--border);
+    }
+    .amount-lbl { font-size: 13px; color: var(--muted); }
+    .amount-val { font-size: 22px; font-weight: 700; color: var(--text); }
+    .amount-val span { font-size: 13px; font-weight: 400; color: var(--muted); margin-left: 3px; }
+
+    /* ── proof steps ── */
+    .proof-title { font-size: 13.5px; font-weight: 600; color: var(--text); margin: 1.25rem 0 .65rem; }
+    .proof-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 1.25rem; }
+    .proof-item { display: flex; align-items: flex-start; gap: 10px; font-size: 13.5px; color: #444; line-height: 1.55; }
+    .proof-num {
+      width: 21px; height: 21px; border-radius: 50%;
+      background: var(--green-light); color: var(--green-dark);
+      font-size: 11.5px; font-weight: 600;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+    }
+
+    /* ── field ── */
+    .field { margin-bottom: .85rem; }
+    .field label { display: block; font-size: 12.5px; font-weight: 500; color: #555; margin-bottom: 4px; }
+    .field input {
+      width: 100%; height: 42px;
+      border: 0.5px solid rgba(0,0,0,0.2); border-radius: 8px;
+      padding: 0 12px; font-size: 14px; font-family: 'DM Sans', sans-serif;
+      color: var(--text); background: #fff; outline: none;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .field input:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(15,110,86,.1); }
+    .err-txt { font-size: 12px; color: #c0392b; margin-top: 4px; display: none; }
+    .err-txt.show { display: block; }
+
+    /* ── buttons ── */
+    .btn-primary {
+      width: 100%; height: 46px;
+      background: var(--green); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 500; font-family: 'DM Sans', sans-serif;
+      cursor: pointer; margin-top: .85rem;
+      transition: background .15s, transform .1s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-primary:hover  { background: var(--green-dark); }
+    .btn-primary:active { transform: scale(.98); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-ghost {
+      width: 100%; height: 42px;
+      background: transparent; color: var(--muted);
+      border: 0.5px solid var(--border); border-radius: 10px;
+      font-size: 14px; font-family: 'DM Sans', sans-serif;
+      cursor: pointer; margin-top: .4rem; transition: background .15s;
+    }
+    .btn-ghost:hover { background: rgba(0,0,0,0.04); }
+
+    /* ── success state ── */
+    .success-ring {
+      width: 56px; height: 56px;
+      background: var(--green-light); border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 1.25rem;
+    }
+    .next-steps { border: 0.5px solid var(--border); border-radius: 12px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+    .next-steps-label { font-size: 10.5px; color: var(--subtle); margin-bottom: .5rem; font-weight: 500; text-transform: uppercase; letter-spacing: .06em; }
+    .ns-row { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: #444; line-height: 1.55; padding: 4px 0; }
+    .ns-num {
+      width: 20px; height: 20px; border-radius: 50%;
+      background: var(--green-light); color: var(--green-dark);
+      font-size: 11px; font-weight: 600;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-top: 1px;
+    }
+    .btn-dashboard {
+      width: 100%; height: 46px;
+      background: var(--text); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 15px; font-weight: 500; font-family: 'DM Sans', sans-serif;
+      cursor: pointer; margin-top: .85rem;
+      transition: background .15s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      text-decoration: none;
+    }
+    .btn-dashboard:hover { background: #222; color: #fff; }
+
+    .alert-box { border-radius: 8px; padding: .7rem 1rem; font-size: 13.5px; margin-bottom: 1rem; display: none; }
+    .alert-box.show   { display: block; }
+    .alert-box.danger { background: #fdecea; color: #922b21; border: 0.5px solid #f5c6c2; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid rgba(255,255,255,.4); border-top-color: #fff;
+      border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0;
+    }
+
+    .hidden { display: none !important; }
+
+    /* ── slot summary chips ── */
+    .slot-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 1.25rem; }
+    .slot-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: var(--green-xlight); border: 0.5px solid var(--green-mid);
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 12.5px; color: var(--green-dark); font-weight: 500;
+    }
+
+    /* ── tg link full width ── */
+    .tg-link {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; height: 42px;
+      background: none; border: 0.5px solid var(--green); border-radius: 9px;
+      color: var(--green); font-size: 14px; font-weight: 500;
+      text-decoration: none; font-family: inherit; cursor: pointer;
+      transition: background .15s; margin-bottom: .5rem;
+    }
+    .tg-link:hover { background: var(--green-light); }
+
+    .divider { display: flex; align-items: center; gap: .75rem; margin: 1.25rem 0; color: var(--subtle); font-size: 12px; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 0.5px; background: var(--border); }
+
+    .contact-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1.25rem; }
+    .contact-card { border: 0.5px solid var(--border); border-radius: 10px; padding: .85rem 1rem; }
+    .contact-card-title { font-size: 13.5px; font-weight: 500; color: var(--text); margin-bottom: 3px; }
+    .contact-card-desc { font-size: 12px; color: var(--muted); margin-bottom: .65rem; line-height: 1.4; }
+
+    @media (max-width: 520px) {
+      .slot-grid { grid-template-columns: repeat(2, 1fr); }
+      .contact-cards { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">SwapArb</div>
+  <button class="logout-btn" onclick="logout()">Sign out</button>
+</div>
+
+<div class="container">
+  <div class="page-heading" id="greetingName">Account setup</div>
+  <div class="page-sub">Complete the steps below to activate copy-trading on your accounts.</div>
+
+  <!-- Progress -->
+  <div class="progress-track">
+    <div class="progress-line"><div class="progress-fill" id="progressFill"></div></div>
+    <div class="pt-step active" id="pt0">
+      <div class="pt-circle"><span class="pt-num">1</span></div>
+      <div class="pt-label">Broker accounts</div>
+    </div>
+    <div class="pt-step" id="pt1">
+      <div class="pt-circle"><span class="pt-num">2</span></div>
+      <div class="pt-label">Buy slots</div>
+    </div>
+    <div class="pt-step" id="pt2">
+      <div class="pt-circle"><span class="pt-num">3</span></div>
+      <div class="pt-label">Submit details</div>
+    </div>
+    <div class="pt-step" id="pt3">
+      <div class="pt-circle"><span class="pt-num">4</span></div>
+      <div class="pt-label">Admin review</div>
+    </div>
+  </div>
+
+  <div class="card">
+
+    <!-- ═══ STEP 0 — Open broker accounts ═══ -->
+    <div id="step0">
+      <div class="step-eyebrow">Step 1 of 3</div>
+      <div class="step-title">Open your broker accounts</div>
+
+      <div class="info-box">
+        You need live accounts with <strong>both brokers</strong> for copy trading to work. Each slot uses two accounts — one master and one slave — across these two brokers.
+      </div>
+
+      <div class="broker-card">
+        <div class="broker-card-title">Broker One — Standard</div>
+        <div class="broker-card-desc">
+          Open a <strong>Real → Standard</strong> account. Set base currency to <strong>USD</strong>, leverage <strong>1:100</strong>. Complete identity verification before depositing funds.
+        </div>
+        <a class="link-btn" href="https://go.fptrading.com/visit/?bta=45110&brand=fptrading" target="_blank" rel="noopener">
+          Open account
+          <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+        </a>
+      </div>
+
+      <div class="broker-card">
+        <div class="broker-card-title">Broker Two — ECN</div>
+        <div class="broker-card-desc">
+          Open a <strong>Real → ECN</strong> account. Use <strong>USD</strong>, enable swap-free if applicable. Complete identity verification before depositing funds.
+        </div>
+        <a class="link-btn" href="https://go.fptrading.com/visit/?bta=45110&brand=fptrading" target="_blank" rel="noopener">
+          Open account
+          <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+        </a>
+      </div>
+
+      <button class="btn-primary" onclick="advance(0, 'brokers_registered')">
+        I've registered with both brokers
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 18l6-6-6-6"/></svg>
+      </button>
+    </div>
+
+    <!-- ═══ STEP 1 — Buy slots ═══ -->
+    <div id="step1" class="hidden">
+      <div class="step-eyebrow">Step 2 of 3</div>
+      <div class="step-title">Choose your slot plan</div>
+
+      <div class="info-box">
+        Each <strong>slot = 1 VPS + 2 trading accounts</strong> (1 master account + 1 slave account). Buy as many slots as you want to run in parallel. You can add more slots later from your dashboard.
+      </div>
+
+      <div class="slot-section-label">How many slots do you want?</div>
+
+      <div class="slot-grid">
+        <div class="slot-option" onclick="selectSlot(1)" data-slots="1">
+          <div class="slot-num">1</div>
+          <div class="slot-lbl">slot</div>
+        </div>
+        <div class="slot-option" onclick="selectSlot(2)" data-slots="2">
+          <div class="slot-num">2</div>
+          <div class="slot-lbl">slots</div>
+        </div>
+        <div class="slot-option" onclick="selectSlot(3)" data-slots="3">
+          <div class="slot-num">3</div>
+          <div class="slot-lbl">slots</div>
+        </div>
+        <div class="slot-option" onclick="selectSlot(5)" data-slots="5">
+          <div class="slot-num">5</div>
+          <div class="slot-lbl">slots</div>
+        </div>
+      </div>
+
+      <div class="pricing-bar">
+        <div class="pricing-row">
+          <span>Price per slot / month</span>
+          <span class="val">30 USDT</span>
+        </div>
+        <div class="pricing-row">
+          <span id="slotCountLabel">Slots selected</span>
+          <span class="val" id="slotCountVal">—</span>
+        </div>
+        <div class="pricing-row">
+          <span>Trading accounts included</span>
+          <span class="val" id="accountsIncluded">—</span>
+        </div>
+        <div class="pricing-row total">
+          <span>Monthly total</span>
+          <span class="val" id="totalPrice">— USDT</span>
+        </div>
+      </div>
+
+      <!-- Payment box -->
+      <div id="paymentBox" class="hidden">
+        <div class="usdt-box">
+          <div class="network-pill">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="#f3a417"><circle cx="12" cy="12" r="12"/><text x="12" y="16" text-anchor="middle" font-size="11" fill="#fff" font-weight="bold">B</text></svg>
+            BEP20 Network (BSC) — USDT only
+          </div>
+
+          <div class="usdt-label">Send USDT to this address</div>
+          <div class="address-row">
+            <div class="address-box" id="walletAddr">0x2a109fb2dd47caeb800eb5c07f833bfaef1bd487</div>
+            <button class="copy-btn" id="copyBtn" onclick="copyAddress()">
+              <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+              Copy
+            </button>
+          </div>
+
+          <div class="amount-row">
+            <span class="amount-lbl">Amount due this month</span>
+            <span class="amount-val" id="amountDue">— <span>USDT</span></span>
+          </div>
+        </div>
+
+        <div class="warn-box" style="margin-top:.5rem;">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+          <span>Only send <strong>USDT on BEP20 (BSC)</strong>. Wrong network = permanent loss.</span>
+        </div>
+
+        <div class="proof-title">After paying, send proof on Telegram:</div>
+        <div class="proof-list">
+          <div class="proof-item"><div class="proof-num">1</div><span>Send the USDT payment to the address above on <strong>BEP20 network</strong>.</span></div>
+          <div class="proof-item"><div class="proof-num">2</div><span>Screenshot your transaction — it must show the <strong>amount, wallet address, and TX hash</strong>.</span></div>
+          <div class="proof-item"><div class="proof-num">3</div><span>Message the admin on Telegram with the screenshot and your <strong>registered email + number of slots</strong>.</span></div>
+          <div class="proof-item"><div class="proof-num">4</div><span>Once confirmed, your VPS slots will be provisioned. Then return here to continue.</span></div>
+        </div>
+
+        <a class="tg-link" href="https://t.me/rusty_0ffic" target="_blank" rel="noopener">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.562 8.248l-2.04 9.613c-.15.672-.546.836-1.106.52l-3.067-2.26-1.48 1.423c-.163.163-.3.3-.616.3l.22-3.11 5.666-5.116c.246-.22-.054-.342-.382-.122L7.46 14.658 4.44 13.73c-.658-.206-.672-.658.138-.976l10.88-4.193c.548-.198 1.027.134.104 1.687z"/></svg>
+          Send payment screenshot on Telegram
+        </a>
+
+        <div class="warn-box" style="margin-top:.85rem;">
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+          <span>Click the button below <strong>only after</strong> your payment screenshot has been confirmed on Telegram.</span>
+        </div>
+
+        <button class="btn-primary" onclick="advance(1, 'vps_activated')">
+          Payment sent & confirmed — continue
+          <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 18l6-6-6-6"/></svg>
+        </button>
+      </div>
+
+      <button class="btn-ghost" onclick="goTo(0)">Back</button>
+    </div>
+
+    <!-- ═══ STEP 2 — Submit MT5 details ═══ -->
+    <div id="step2" class="hidden">
+      <div class="step-eyebrow">Step 3 of 3</div>
+      <div class="step-title">Send your MT5 account details</div>
+
+      <div class="info-box">
+        The admin needs your <strong>MT5 login IDs, server names, and deposit confirmation</strong> for each account to link them to the copy-trading system.
+      </div>
+
+      <div class="slot-chips" id="slotChips"></div>
+
+      <div class="contact-cards">
+        <div class="contact-card">
+          <div class="contact-card-title">Telegram</div>
+          <div class="contact-card-desc">Fastest response. Message with MT5 details + deposit screenshot.</div>
+          <a class="link-btn" href="https://t.me/rusty_0ffic" target="_blank" rel="noopener">
+            Open chat
+            <svg width="10" height="10" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/></svg>
+          </a>
+        </div>
+        <div class="contact-card">
+          <div class="contact-card-title">Email</div>
+          <div class="contact-card-desc">Send account details and proof of deposit to admin.</div>
+          <a class="link-btn" href="mailto:admin@swaparb.com">admin@swaparb.com</a>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="notifContact">Where should we notify you? <span style="color:var(--subtle);font-weight:400;font-size:11px;">(Telegram ID or email)</span></label>
+        <input id="notifContact" type="text" placeholder="@yourusername  or  you@email.com">
+        <div class="err-txt" id="notifErr">Please enter your Telegram ID or email.</div>
+      </div>
+
+      <div class="alert-box" id="s2Alert"></div>
+
+      <button class="btn-primary" id="s2Btn" onclick="submitFinal()">
+        Details sent — notify admin
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 18l6-6-6-6"/></svg>
+      </button>
+      <button class="btn-ghost" onclick="goTo(1)">Back</button>
+    </div>
+
+    <!-- ═══ STEP 3 — Waiting for admin ═══ -->
+    <div id="step3" class="hidden">
+      <div class="success-ring">
+        <svg width="26" height="26" fill="none" stroke="#0F6E56" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+
+      <div class="step-title" style="text-align:center;">Setup complete — pending approval</div>
+
+      <div class="info-box" style="text-align:center; margin-bottom:1.5rem;">
+        The admin has been notified. Once your VPS payment and broker accounts are verified, your dashboard will unlock.
+      </div>
+
+      <div class="next-steps">
+        <div class="next-steps-label">What happens next</div>
+        <div class="ns-row"><div class="ns-num">1</div><span>Admin verifies your USDT payment and slot count</span></div>
+        <div class="ns-row"><div class="ns-num">2</div><span>VPS instances are provisioned for your slots</span></div>
+        <div class="ns-row"><div class="ns-num">3</div><span>Your MT5 accounts are linked to the copy system</span></div>
+        <div class="ns-row"><div class="ns-num">4</div><span>You get notified and your dashboard unlocks</span></div>
+      </div>
+
+      <a href="/app" id="dashBtn" class="btn-dashboard" style="opacity:.35;pointer-events:none;cursor:not-allowed;">
+        <svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Go to dashboard
+      </a>
+      <div style="font-size:12px;color:var(--subtle);text-align:center;margin-top:.6rem;" id="dashNote">
+        Dashboard unlocks after admin approves your account.
+      </div>
+    </div>
+
+  </div><!-- /card -->
+</div><!-- /container -->
+
+<script>
+  /* ── constants ── */
+  const WALLET_ADDRESS  = '0x2a109fb2dd47caeb800eb5c07f833bfaef1bd487';
+  const PRICE_PER_SLOT  = 30;  // USDT
+
+  const STEP_MAP = {
+    'registered':         0,
+    'brokers_registered': 1,
+    'vps_activated':      2,
+    'accounts_submitted': 3,
+  };
+
+  let currentStep  = 0;
+  let selectedSlots = 0;
+  const token = localStorage.getItem('token');
+
+  /* ── slot selection ── */
+  function selectSlot(n) {
+    selectedSlots = n;
+    document.querySelectorAll('.slot-option').forEach(el => {
+      el.classList.toggle('selected', parseInt(el.dataset.slots) === n);
+    });
+
+    const total = n * PRICE_PER_SLOT;
+    document.getElementById('slotCountLabel').textContent  = `Slots × ${n}`;
+    document.getElementById('slotCountVal').textContent    = n;
+    document.getElementById('accountsIncluded').textContent = `${n * 2} accounts (${n} master + ${n} slave)`;
+    document.getElementById('totalPrice').textContent      = `${total} USDT`;
+    document.getElementById('amountDue').innerHTML         = `${total} <span>USDT</span>`;
+    document.getElementById('paymentBox').classList.remove('hidden');
+
+    // build chips for step 2
+    const chips = document.getElementById('slotChips');
+    chips.innerHTML = '';
+    for (let i = 1; i <= n; i++) {
+      chips.innerHTML += `
+        <div class="slot-chip">
+          <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          Slot ${i} — 1 master + 1 slave account
+        </div>`;
+    }
+  }
+
+  /* ── copy address ── */
+  function copyAddress() {
+    navigator.clipboard.writeText(WALLET_ADDRESS).then(() => {
+      const btn = document.getElementById('copyBtn');
+      btn.textContent = '✓ Copied';
+      btn.classList.add('copied');
+      setTimeout(() => {
+        btn.innerHTML = '<svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg> Copy';
+        btn.classList.remove('copied');
+      }, 2500);
+    });
+  }
+
+  /* ── navigation ── */
+  function goTo(n) {
+    document.getElementById('step' + currentStep).classList.add('hidden');
+    document.getElementById('step' + n).classList.remove('hidden');
+    currentStep = n;
+    updateTrack();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function updateTrack() {
+    const fills = [0, 33, 67, 100];
+    document.getElementById('progressFill').style.width = fills[currentStep] + '%';
+    for (let i = 0; i < 4; i++) {
+      const pt = document.getElementById('pt' + i);
+      pt.classList.remove('active', 'done');
+      if (i < currentStep)  pt.classList.add('done');
+      if (i === currentStep) pt.classList.add('active');
+    }
+  }
+
+  /* ── advance (steps 0 & 1) ── */
+  async function advance(fromStep, stepName) {
+    // For step 1 (slot selection), validate a slot is chosen
+    if (fromStep === 1 && selectedSlots === 0) {
+      alert('Please select the number of slots before continuing.');
+      return;
+    }
+    await patchStep(stepName);
+    goTo(fromStep + 1);
+  }
+
+  /* ── final submit (step 2) ── */
+  async function submitFinal() {
+    const contact  = document.getElementById('notifContact').value.trim();
+    const alertBox = document.getElementById('s2Alert');
+    const btn      = document.getElementById('s2Btn');
+
+    document.getElementById('notifErr').classList.remove('show');
+    alertBox.className = 'alert-box';
+
+    if (!contact) { document.getElementById('notifErr').classList.add('show'); return; }
+
+    btn.disabled  = true;
+    btn.innerHTML = '<span class="spinner"></span> Submitting…';
+
+    const ok = await patchStep('accounts_submitted', contact);
+    if (ok) {
+      goTo(3);
+    } else {
+      alertBox.textContent = 'Something went wrong. Please try again.';
+      alertBox.className   = 'alert-box show danger';
+      btn.disabled  = false;
+      btn.innerHTML = 'Details sent — notify admin';
+    }
+  }
+
+  /* ── patch step ── */
+  async function patchStep(step, notifContact = null) {
+    try {
+      const body = { step };
+      if (notifContact) body.notification_contact = notifContact;
+      if (step === 'vps_activated' && selectedSlots > 0) body.slots_requested = selectedSlots;
+      const res = await fetch('/onboarding/step', {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+        body:    JSON.stringify(body),
+      });
+      return res.ok;
+    } catch { return false; }
+  }
+
+  /* ── unlock dashboard ── */
+  function unlockDashboard() {
+    const btn  = document.getElementById('dashBtn');
+    const note = document.getElementById('dashNote');
+    btn.style.opacity       = '1';
+    btn.style.pointerEvents = 'auto';
+    btn.style.cursor        = 'pointer';
+    note.textContent        = 'Your account has been approved. Welcome!';
+    note.style.color        = '#085041';
+  }
+
+  /* ── logout ── */
+  function logout() {
+    localStorage.removeItem('token');
+    window.location.href = '/';
+  }
+
+  /* ── boot ── */
+  async function boot() {
+    if (!token) { window.location.href = '/'; return; }
+    try {
+      const res  = await fetch('/me', { headers: { Authorization: 'Bearer ' + token } });
+      if (!res.ok) { window.location.href = '/'; return; }
+      const user = await res.json();
+
+      if (user.approval_status === 'approved') { window.location.href = '/app'; return; }
+
+      if (user.first_name) {
+        document.getElementById('greetingName').textContent = 'Hi, ' + user.first_name + ' 👋';
+      }
+
+      const step = STEP_MAP[user.onboarding_step] ?? 0;
+      goTo(step);
+
+      if (step === 3 && user.approval_status === 'approved') unlockDashboard();
+    } catch {
+      window.location.href = '/';
+    }
+  }
+
+  boot();
+</script>
+</body>
+</html>
