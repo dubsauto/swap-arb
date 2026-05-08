@@ -8,6 +8,7 @@ from app.init_db import init_database
 from app.api.auth_routes import router as auth_router
 from app.api.admin_routes import router as admin_router
 from app.api.dashboard_routes import router as dashboard_router
+from app.api.metaconnect_routes import router as metaconnect_router
 
 load_dotenv()
 
@@ -61,7 +62,8 @@ async def serve_onboarding():
 # =========================
 app.include_router(auth_router)
 app.include_router(admin_router)
-app.include_router(dashboard_router)    
+app.include_router(dashboard_router)
+app.include_router(metaconnect_router)
 
 
 @app.get("/health")

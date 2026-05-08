@@ -1,6 +1,7 @@
 # app/model.py
 
 import os
+import secrets
 from datetime import datetime
 from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Text,
@@ -9,6 +10,20 @@ from sqlalchemy import (
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy import create_engine
 from sqlalchemy import JSON
+
+DEFAULT_NOTIFICATION_TEMPLATE = (
+    "⚠️ <b>Margin Alert</b> — Account {account_number}\n\n"
+    "Your account at <b>{broker}</b> has reached a critical margin level and needs attention.\n\n"
+    "📊 Margin Level: <b>{margin_level}%</b>\n"
+    "💰 Balance: <b>${balance}</b>\n"
+    "📈 Equity: <b>${equity}</b>\n"
+    "🔒 Margin Used: <b>${margin}</b>\n"
+    "💵 Free Margin: <b>${free_margin}</b>\n\n"
+    "<b>Action Required:</b>\n"
+    "• Withdraw profits from your <b>MASTER account</b> (Broker A — the profitable side)\n"
+    "• Deposit those funds into your <b>SLAVE account</b> (Broker B — the losing side)\n\n"
+    "This rebalance will keep your swap-arbitrage strategy alive and continue generating profits. 🚀"
+)
 
 Base = declarative_base()
 
@@ -20,44 +35,21 @@ class User(Base):
 
     id = Column(Integer, primary_key=True)
     username = Column(String(64), unique=True, nullable=False)
-
-    # --- NEW: real name fields ---
     first_name = Column(String(64), nullable=False, server_default="")
     last_name  = Column(String(64), nullable=False, server_default="")
-
     email = Column(String(190), unique=True)
     password_hash = Column(String(255), nullable=False)
-
-    # --- NEW: referral ---
     referral_code = Column(String(64), nullable=True)   # code this user was invited with
-
     role = Column(String(16), default="user")  # admin/user
     approval_status = Column(String(16), default="pending")  # pending/approved/rejected
-
     approval_note = Column(String(255))
     approved_by = Column(String(64))
     approved_at = Column(DateTime)
-
-    # --- NEW: onboarding progress ---
-    # Tracks which step of signup the user has completed so the frontend
-    # can resume and the admin can see where each user stands.
-    #
-    # Values (in order):
-    #   "registered"          – completed step 1 (account created)
-    #   "brokers_registered"  – completed step 2 (opened broker accounts)
-    #   "vps_activated"       – completed step 3 (paid VPS subscription)
-    #   "accounts_submitted"  – completed step 4 (sent MT5 details to admin)
-    #   "approved"            – admin approved, full dashboard access
     onboarding_step = Column(String(32), default="registered")
-
-    # --- NEW: notification preference (Telegram handle or email) ---
+    slots_requested = Column(Integer, nullable=True)
     notification_contact = Column(String(190), nullable=True)
-
     created_at = Column(DateTime, default=datetime.utcnow)
-
     accounts    = relationship("TradingAccount", back_populates="owner")
-    #cycle_slots = relationship("CycleSlot",      back_populates="owner")
-
     # Convenience property
     @property
     def full_name(self):
@@ -72,6 +64,7 @@ class UserPermission(Base):
 
     user_id          = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     can_trade        = Column(Boolean, default=True)
+    profit_share_pct = Column(Float, default=50.0)   # platform's share of cycle swap profit
     updated_at       = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
@@ -155,7 +148,7 @@ class CopyRelationship(Base):
     master_account_id = Column(Integer, ForeignKey("trading_accounts.id", ondelete="CASCADE"))
     slave_account_id  = Column(Integer, ForeignKey("trading_accounts.id", ondelete="CASCADE"))
 
-    copy_direction = Column(String(16), default="same")  # same/opposite
+    copy_direction = Column(String(16), default="opposite")  # same/opposite
     strict_mode    = Column(Boolean, default=False)
     is_active      = Column(Boolean, default=True)
 
@@ -192,6 +185,169 @@ class CopyTradeLink(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+# =========================
+# USER SLOTS
+# =========================
+class UserSlot(Base):
+    """
+    One row per slot purchased by a user.
+    Admin creates these rows after confirming payment.
+    Each slot maps to one VPS and expects exactly two TradingAccounts
+    (one master, one slave) to be linked to it.
+    """
+    __tablename__ = "user_slots"
+ 
+    id            = Column(Integer, primary_key=True)
+    user_id       = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+ 
+    # Which slot number for this user (1, 2, 3…)
+    slot_number   = Column(Integer, nullable=False)
+ 
+    # Admin links a VPS record here once provisioned
+    vps_id        = Column(Integer, ForeignKey("vps_accounts.id", ondelete="SET NULL"), nullable=True)
+ 
+    # Admin links master/slave trading accounts here
+    master_account_id = Column(Integer, ForeignKey("trading_accounts.id", ondelete="SET NULL"), nullable=True)
+    slave_account_id  = Column(Integer, ForeignKey("trading_accounts.id", ondelete="SET NULL"), nullable=True)
+ 
+    # Slot lifecycle:
+    #   "pending"     – payment confirmed, VPS not yet provisioned
+    #   "provisioned" – VPS assigned, waiting for user to add MT5 accounts
+    #   "active"      – both MT5 accounts linked, copy-trading running
+    #   "paused"      – copy-trading paused by admin or user
+    status        = Column(String(16), default="pending")
+ 
+    created_at    = Column(DateTime, default=datetime.utcnow)
+    updated_at    = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+ 
+    # Relationships
+    user          = relationship("User",           foreign_keys=[user_id])
+    vps           = relationship("VpsAccount",     foreign_keys=[vps_id])
+    master_account = relationship("TradingAccount", foreign_keys=[master_account_id])
+    slave_account  = relationship("TradingAccount", foreign_keys=[slave_account_id])
+ 
+    __table_args__ = (
+        UniqueConstraint("user_id", "slot_number", name="uniq_user_slot"),
+    )
+
+class BotLog(Base):
+    __tablename__ = "bot_logs"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+
+    account_id = Column(Integer, ForeignKey("trading_accounts.id", ondelete="CASCADE"), nullable=False)
+
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    level = Column(String(20))        # INFO, TRADE, ERROR
+    category = Column(String(32))     # SYSTEM, COPY, EXECUTION
+
+    message = Column(Text)
+    raw_json = Column(JSON)
+
+class AccountLot(Base):
+    __tablename__ = "account_lots"
+
+    account_id = Column(
+        Integer,
+        ForeignKey("trading_accounts.id", ondelete="CASCADE"),
+        primary_key=True
+    )
+
+    lot_size = Column(Float, default=0.10)
+
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class CopyTradeSettings(Base):
+    __tablename__ = "copy_trade_settings"
+
+    user_id             = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    fixed_lot_enabled   = Column(Boolean, default=False)
+    pips_offset_enabled = Column(Boolean, default=False)
+    pips_offset         = Column(Integer, default=0)
+    updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class SlotSymbolMap(Base):
+    """Per-slot symbol translation: master_symbol ↔ slave_symbol."""
+    __tablename__ = "slot_symbol_maps"
+
+    id            = Column(Integer, primary_key=True)
+    slot_id       = Column(Integer, ForeignKey("user_slots.id", ondelete="CASCADE"), nullable=False, index=True)
+    master_symbol = Column(String(32), nullable=False)
+    slave_symbol  = Column(String(32), nullable=False)
+    created_at    = Column(DateTime, default=datetime.utcnow)
+
+
+# =========================
+# NOTIFICATION SETTINGS (global, one row)
+# =========================
+class NotificationSettings(Base):
+    __tablename__ = "notification_settings"
+
+    id                     = Column(Integer, primary_key=True)
+    margin_threshold_pct   = Column(Float,   default=50.0)
+    check_interval_minutes = Column(Integer, default=15)
+    message_template       = Column(Text,    default=DEFAULT_NOTIFICATION_TEMPLATE)
+    updated_at             = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_by             = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+
+
+# =========================
+# USER NOTIFICATION PREFS
+# =========================
+class UserNotificationPrefs(Base):
+    __tablename__ = "user_notification_prefs"
+
+    user_id             = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    telegram_chat_id    = Column(String(64),  nullable=True)
+    telegram_link_token = Column(String(16),  nullable=False,
+                                 default=lambda: secrets.token_urlsafe(8)[:8].upper())
+    notify_telegram     = Column(Boolean, default=True)
+    notify_email        = Column(Boolean, default=True)
+    updated_at          = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# =========================
+# NOTIFICATION LOG
+# =========================
+class NotificationLog(Base):
+    __tablename__ = "notification_logs"
+
+    id           = Column(Integer,  primary_key=True)
+    user_id      = Column(Integer,  ForeignKey("users.id",            ondelete="CASCADE"))
+    account_id   = Column(Integer,  ForeignKey("trading_accounts.id", ondelete="CASCADE"))
+    channel      = Column(String(32))   # telegram / email / telegram+email
+    message      = Column(Text)
+    margin_level = Column(Float)
+    sent_at      = Column(DateTime, default=datetime.utcnow)
+
+
+class SymbolMappingGroup(Base):
+    __tablename__ = "symbol_mapping_groups"
+
+    id = Column(Integer, primary_key=True)
+
+    owner_user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
+
+    name = Column(String(100))
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+class SymbolMappingEntry(Base):
+    __tablename__ = "symbol_mapping_entries"
+
+    id = Column(Integer, primary_key=True)
+
+    group_id = Column(Integer, ForeignKey("symbol_mapping_groups.id", ondelete="CASCADE"))
+    account_id = Column(Integer, ForeignKey("trading_accounts.id", ondelete="CASCADE"))
+
+    symbol = Column(String(32), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("group_id", "account_id", name="uniq_group_account"),
+    )
 
 # =========================
 # ACTIVITY LOG

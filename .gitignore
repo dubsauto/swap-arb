@@ -23,5 +23,6 @@ lines.txt
 .env
 .metaapi/
 images/
+alembic/
 resources/
 docs/

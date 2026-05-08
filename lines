@@ -32,7 +32,7 @@ FLUSH PRIVILEGES;
 
 
 alembic stamp head
-alembic revision --autogenerate -m "add listerner to model"
+alembic revision --autogenerate -m "add notification worker"
 alembic upgrade head
 
 
@@ -172,5 +172,9 @@ with engine.begin() as conn:
 
     print("Migration completed successfully.")
 
+
+
+running
+python -u run_worker.py
 
 

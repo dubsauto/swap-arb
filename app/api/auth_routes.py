@@ -213,9 +213,11 @@ async def update_onboarding_step(
     """
     step                 = (data.get("step")                 or "").strip()
     notification_contact = (data.get("notification_contact") or "").strip() or None
+    slots_requested = (data.get("slots_requested") or 0)
 
     if not step:
         raise HTTPException(status_code=400, detail="step is required")
+    
 
     if step not in _VALID_STEPS:
         raise HTTPException(
@@ -225,6 +227,14 @@ async def update_onboarding_step(
 
     if current_user.approval_status == "approved":
         raise HTTPException(status_code=400, detail="Onboarding already complete")
+    
+    if step == "vps_activated" and slots_requested:
+        current_user.slots_requested = slots_requested
+        # Create pending UserSlot rows so admin can see them immediately
+        from app.model import UserSlot
+        existing_count = db.query(UserSlot).filter_by(user_id=current_user.id).count()
+        for i in range(existing_count + 1, slots_requested + 1):
+            db.add(UserSlot(user_id=current_user.id, slot_number=i, status="pending"))
 
     current_user.onboarding_step = step
     if notification_contact:

@@ -25,18 +25,159 @@
       color: #f5f5f5 !important;
     }
     .save-btn:disabled {
-    background-color: #e0e0e0 !important;
-    color: #888 !important;
-    border: 1px solid #ccc !important;
-    cursor: not-allowed;
-    opacity: 0.7;
+      background-color: #e0e0e0 !important;
+      color: #888 !important;
+      border: 1px solid #ccc !important;
+      cursor: not-allowed;
+      opacity: 0.7;
     }
-
     .save-btn.active-save {
       background-color: #ffffff !important;
       color: #000 !important;
       border: 1px solid #ddd !important;
     }
+
+    /* ── Slot allocation panel ── */
+    .slot-allocation-panel {
+      background: rgba(255,255,255,.04);
+      border: 1px solid rgba(255,255,255,.1);
+      border-radius: 10px;
+      padding: 14px;
+      margin-top: 12px;
+    }
+    .slot-allocation-panel .slot-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+      border-bottom: 1px solid rgba(255,255,255,.06);
+      flex-wrap: wrap;
+    }
+    .slot-allocation-panel .slot-row:last-child { border-bottom: none; }
+
+    .slot-badge {
+      min-width: 64px;
+      text-align: center;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 20px;
+      background: rgba(255,255,255,.08);
+      color: #aaa;
+      white-space: nowrap;
+    }
+    .slot-badge.status-pending      { background: rgba(255,193,7,.15);  color: #ffc107; }
+    .slot-badge.status-provisioned  { background: rgba(13,202,240,.15); color: #0dcaf0; }
+    .slot-badge.status-active       { background: rgba(25,135,84,.2);   color: #2cda9d; }
+    .slot-badge.status-paused       { background: rgba(220,53,69,.15);  color: #f87171; }
+
+    .slot-vps-form {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      flex: 1;
+      min-width: 220px;
+    }
+    .slot-vps-form input {
+      flex: 1;
+      min-width: 110px;
+      height: 34px;
+      font-size: 12.5px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.3);
+      color: #f5f5f5;
+      padding: 0 10px;
+      font-family: inherit;
+    }
+    .slot-vps-form input::placeholder { color: #555; }
+    .slot-vps-form input:focus { outline: none; border-color: rgba(255,255,255,.35); }
+
+    .btn-allocate {
+      height: 34px;
+      padding: 0 14px;
+      font-size: 12.5px;
+      font-weight: 600;
+      border-radius: 6px;
+      border: none;
+      background: #2cda9d;
+      color: #000;
+      cursor: pointer;
+      white-space: nowrap;
+      font-family: inherit;
+      transition: opacity .15s;
+    }
+    .btn-allocate:hover    { opacity: .85; }
+    .btn-allocate:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-allocate.allocated {
+      background: rgba(44,218,157,.15);
+      color: #2cda9d;
+      border: 1px solid rgba(44,218,157,.3);
+      cursor: default;
+    }
+
+    .vps-summary { font-size: 11.5px; color: #888; line-height: 1.5; }
+    .vps-summary strong { color: #ccc; }
+
+    .slots-pill {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 20px;
+      background: rgba(99,102,241,.2);
+      color: #a5b4fc;
+      border: 1px solid rgba(99,102,241,.3);
+    }
+
+    .manage-slots-btn {
+      font-size: 12px;
+      padding: 4px 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: transparent;
+      color: #aaa;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background .15s;
+    }
+    .manage-slots-btn:hover { background: rgba(255,255,255,.08); color: #fff; }
+
+    /* add-new-slot form inside modal */
+    .new-slot-form {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      background: rgba(255,255,255,.03);
+      border: 1px dashed rgba(44,218,157,.25);
+      border-radius: 8px;
+      padding: 12px;
+      margin-top: 10px;
+    }
+    .new-slot-form .nsf-label {
+      width: 100%;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .07em;
+      color: #555;
+      margin-bottom: 4px;
+    }
+    .new-slot-form .field { display: flex; flex-direction: column; flex: 1; min-width: 120px; }
+    .new-slot-form label  { font-size: 10.5px; color: #666; margin-bottom: 4px; }
+    .new-slot-form input  {
+      height: 34px;
+      font-size: 12.5px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.3);
+      color: #f5f5f5;
+      padding: 0 10px;
+      font-family: inherit;
+      width: 100%;
+    }
+    .new-slot-form input::placeholder { color: #555; }
+    .new-slot-form input:focus { outline: none; border-color: rgba(255,255,255,.35); }
   </style>
 </head>
 <body class="ui-body ui-profile-page">
@@ -45,7 +186,7 @@
   <div class="d-flex align-items-center justify-content-between mb-4">
     <div>
       <div class="ui-h1">Profile Management</div>
-      <div class="ui-sub">Approve signup requests and manage user roles & permissions</div>
+      <div class="ui-sub">Approve requests · allocate VPS slots · manage roles & permissions</div>
     </div>
     <div class="d-flex gap-2">
       <a href="/app" class="ui-btn px-3">← Back to Dashboard</a>
@@ -57,86 +198,87 @@
   <div class="ui-panel mb-4">
     <div class="ui-panel-title">Approval Queue</div>
     <div class="ui-footnote mb-3" id="pendingCount">Pending requests: 0</div>
-    
-    <div id="approvalQueue" class="row g-3">
-      <!-- Populated by JavaScript -->
-    </div>
+    <div id="approvalQueue" class="row g-3"></div>
   </div>
 
   <!-- All Users Table -->
   <div class="ui-panel">
     <div class="ui-panel-title">All Users</div>
-    
     <div class="table-responsive">
       <table class="table ui-table align-middle mb-0 profile-table">
         <thead>
           <tr>
             <th>Username</th>
             <th>Email</th>
+            <th>Slots</th>
             <th>Password Update</th>
             <th>Status</th>
             <th>Role</th>
             <th>Can Trade</th>
+            <th>Share %</th>
             <th class="text-end">Actions</th>
           </tr>
         </thead>
-        <tbody id="usersTableBody">
-          <!-- Populated by JavaScript -->
-        </tbody>
+        <tbody id="usersTableBody"></tbody>
       </table>
     </div>
-
     <div class="ui-footnote mt-3">
-      Pending users cannot log in until approved by an admin.
+      Pending users cannot log in until approved. You can allocate VPS slots at any time for any account.
     </div>
   </div>
 </div>
 
-<script>
-// Get token
-const token = localStorage.getItem("token");
-if (!token) {
-  window.location.href = "/";
-}
+<!-- ════ SLOT ALLOCATION MODAL ════ -->
+<div class="modal fade" id="slotsModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content" style="background:#1a1a1a;border:1px solid rgba(255,255,255,.1);border-radius:14px;color:#f5f5f5;">
+      <div class="modal-header" style="border-bottom:1px solid rgba(255,255,255,.08);">
+        <h5 class="modal-title" id="slotsModalTitle">Manage Slots</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="slotsModalBody"></div>
+      <div class="modal-footer" style="border-top:1px solid rgba(255,255,255,.08);">
+        <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
 
-// Logout
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const token = localStorage.getItem("token");
+if (!token) window.location.href = "/";
+
 document.getElementById("logoutBtn").addEventListener("click", () => {
   localStorage.removeItem("token");
   window.location.href = "/";
 });
 
-// Load all users + pending approvals
+// ─────────────────────────────────────────────
+//  LOAD
+// ─────────────────────────────────────────────
 async function loadProfiles() {
   try {
     const res = await fetch("/admin/profiles", {
       headers: { "Authorization": "Bearer " + token }
     });
-
-    if (res.status === 403) {
-      alert("Access denied. Admin only.");
-      window.location.href = "/app";
-      return;
-    }
-
+    if (res.status === 403) { alert("Access denied. Admin only."); window.location.href = "/app"; return; }
     const data = await res.json();
 
-    // Update pending count
-    document.getElementById("pendingCount").textContent = 
+    document.getElementById("pendingCount").textContent =
       `Pending requests: ${data.pending_count || 0}`;
 
-    // Render Approval Queue
     renderApprovalQueue(data.pending_users || []);
-
-    // Render All Users Table
     renderUsersTable(data.all_users || []);
-
   } catch (err) {
     console.error(err);
     alert("Failed to load profiles");
   }
 }
 
-// Render Pending Approvals
+// ─────────────────────────────────────────────
+//  APPROVAL QUEUE
+// ─────────────────────────────────────────────
 function renderApprovalQueue(pending) {
   const container = document.getElementById("approvalQueue");
   container.innerHTML = "";
@@ -147,22 +289,66 @@ function renderApprovalQueue(pending) {
   }
 
   pending.forEach(user => {
+    const slotsReq      = user.slots_requested || 0;
+    const existingSlots = user.slots || [];
+    let slotRowsHTML    = "";
+
+    for (let i = 1; i <= slotsReq; i++) {
+      const existing      = existingSlots.find(s => s.slot_number === i);
+      const isProvisioned = existing && existing.status !== "pending";
+      slotRowsHTML += `
+        <div class="slot-row" id="slot-row-${user.id}-${i}">
+          <span class="slot-badge status-${existing ? existing.status : 'pending'}">Slot ${i}</span>
+          ${isProvisioned ? `
+            <div class="vps-summary">
+              <strong>${existing.vps_host}</strong> · ${existing.vps_username}
+              <span class="slot-badge status-${existing.status} ms-2">${existing.status}</span>
+            </div>
+          ` : `
+            <div class="slot-vps-form">
+              <input type="text"     placeholder="VPS host / IP" id="vps-host-${user.id}-${i}">
+              <input type="text"     placeholder="Username"       id="vps-user-${user.id}-${i}">
+              <input type="password" placeholder="Password"       id="vps-pass-${user.id}-${i}">
+            </div>
+            <button class="btn-allocate" onclick="allocateSlotInline(${user.id}, ${i})">
+              Provision VPS
+            </button>
+          `}
+        </div>`;
+    }
+
     const card = document.createElement("div");
-    card.className = "col-lg-6";
+    card.className = "col-12";
     card.innerHTML = `
       <div class="approval-card">
-        <div class="d-flex justify-content-between align-items-start">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
           <div>
-            <strong>${user.username}</strong><br>
-            <small class="text-muted">${user.email || '-'}</small>
+            <strong>${user.username}</strong>
+            &nbsp;<span style="font-size:12px;color:#888;">${user.email || ''}</span>
+            ${user.full_name ? `<br><span style="font-size:12px;color:#aaa;">${user.full_name}</span>` : ''}
           </div>
-          <span class="badge bg-warning">Pending</span>
+          <div class="d-flex gap-2 align-items-center flex-wrap">
+            ${slotsReq > 0 ? `<span class="slots-pill">${slotsReq} slot${slotsReq > 1 ? 's' : ''} requested</span>` : ''}
+            <span class="badge bg-warning">Pending</span>
+          </div>
         </div>
+
+        ${slotsReq > 0 ? `
+          <div class="slot-allocation-panel mt-2">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:#666;margin-bottom:8px;">
+              VPS Slot Provisioning
+            </div>
+            ${slotRowsHTML}
+          </div>
+        ` : ''}
+
         <form class="mt-3 approval-form" data-user-id="${user.id}">
-          <input type="text" class="form-control form-control-sm mb-2" name="approval_note" placeholder="Optional note...">
+          <input type="text" class="form-control form-control-sm mb-2" name="approval_note"
+                 placeholder="Optional approval note…"
+                 style="background:rgba(0,0,0,.3);color:#f5f5f5;border-color:rgba(255,255,255,.12);">
           <div class="d-flex gap-2">
-            <button type="button" class="btn btn-success btn-sm approve-btn" data-decision="approve">Approve</button>
-            <button type="button" class="btn btn-danger btn-sm decline-btn" data-decision="decline">Decline</button>
+            <button type="button" class="btn btn-success btn-sm" data-decision="approve">Approve</button>
+            <button type="button" class="btn btn-danger btn-sm"  data-decision="decline">Decline</button>
           </div>
         </form>
       </div>
@@ -170,237 +356,363 @@ function renderApprovalQueue(pending) {
     container.appendChild(card);
   });
 
-  // Attach event listeners
   document.querySelectorAll(".approval-form").forEach(form => {
-    form.querySelectorAll("button").forEach(btn => {
+    form.querySelectorAll("button[data-decision]").forEach(btn => {
       btn.addEventListener("click", async () => {
-        const userId = form.dataset.userId;
-        const decision = btn.dataset.decision;
         const note = form.querySelector("input[name='approval_note']").value.trim();
-
-        await updateApproval(userId, decision, note);
+        await updateApproval(form.dataset.userId, btn.dataset.decision, note);
       });
     });
   });
 }
 
-// Render All Users
+// inline provision from approval queue card
+async function allocateSlotInline(userId, slotNumber) {
+  const host = document.getElementById(`vps-host-${userId}-${slotNumber}`)?.value.trim();
+  const user = document.getElementById(`vps-user-${userId}-${slotNumber}`)?.value.trim();
+  const pass = document.getElementById(`vps-pass-${userId}-${slotNumber}`)?.value.trim();
+  if (!host || !user || !pass) { alert("Fill in host, username, and password."); return; }
+
+  const ok = await doAllocate(userId, slotNumber, host, user, pass);
+  if (ok) {
+    const row = document.getElementById(`slot-row-${userId}-${slotNumber}`);
+    if (row) {
+      row.innerHTML = `
+        <span class="slot-badge status-provisioned">Slot ${slotNumber}</span>
+        <div class="vps-summary">
+          <strong>${host}</strong> · ${user}
+          <span class="slot-badge status-provisioned ms-2">provisioned</span>
+        </div>
+      `;
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+//  ALL USERS TABLE
+// ─────────────────────────────────────────────
 function renderUsersTable(users) {
   const tbody = document.getElementById("usersTableBody");
   tbody.innerHTML = "";
 
   users.forEach(user => {
+    const slotsAllocated = user.slots_allocated || 0;
+    const slotsReq       = user.slots_requested  || 0;
+
     const row = document.createElement("tr");
+    row.setAttribute("data-user-id", user.id);
     row.innerHTML = `
-      <td><strong>${user.username}</strong></td>
-      <td>${user.email || '-'}</td>
+      <td>
+        <strong>${user.username}</strong>
+        ${user.role === 'admin'
+          ? '<span class="badge bg-secondary ms-1" style="font-size:9px;">admin</span>'
+          : ''}
+      </td>
+      <td style="font-size:13px;">${user.email || '-'}</td>
+      <td>
+        <span style="font-size:12.5px;color:#aaa;">${slotsAllocated}/${slotsReq}</span>
+        <button class="manage-slots-btn ms-2" onclick="openSlotsModal(${user.id})">
+          ${slotsReq === 0 ? '+ Add slot' : 'Manage slots'}
+        </button>
+      </td>
       <td>
         <div class="input-group">
-          <input type="password" class="form-control form-control-sm password-input" 
-                data-user-id="${user.id}" placeholder="New password">
+          <input type="password" class="form-control form-control-sm password-input"
+                 data-user-id="${user.id}" placeholder="New password">
           <button class="btn btn-outline-secondary toggle-password" type="button">👁</button>
         </div>
       </td>
       <td>
-        <span class="badge ${user.approval_status === 'pending' ? 'bg-warning' : 
-                            user.approval_status === 'declined' ? 'bg-danger' : 'bg-success'}">
-          ${user.approval_status ? user.approval_status.charAt(0).toUpperCase() + user.approval_status.slice(1) : 'Approved'}
+        <span class="badge ${
+          user.approval_status === 'pending'  ? 'bg-warning' :
+          user.approval_status === 'declined' ? 'bg-danger'  : 'bg-success'}">
+          ${(user.approval_status || 'approved').charAt(0).toUpperCase() +
+            (user.approval_status || 'approved').slice(1)}
         </span>
       </td>
       <td>
-        <select class="ui-select role-select" data-user-id="${user.id}" style="height:36px; width:100px;">
-          <option value="user" ${user.role === 'user' ? 'selected' : ''}>User</option>
+        <select class="ui-select role-select" data-user-id="${user.id}" style="height:36px;width:100px;">
+          <option value="user"  ${user.role === 'user'  ? 'selected' : ''}>User</option>
           <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Admin</option>
         </select>
       </td>
       <td>
         <label class="form-check form-switch">
-          <input type="checkbox" class="form-check-input can-trade-toggle" data-user-id="${user.id}" 
-                 ${user.can_trade ? 'checked' : ''}>
+          <input type="checkbox" class="form-check-input can-trade-toggle"
+                 data-user-id="${user.id}" ${user.can_trade ? 'checked' : ''}>
           <span class="form-check-label">Allow</span>
         </label>
       </td>
+      <td>
+        <div style="display:flex;align-items:center;gap:4px">
+          <input type="number" class="form-control form-control-sm share-pct-input"
+                 data-user-id="${user.id}"
+                 value="${user.profit_share_pct ?? 50}"
+                 min="0" max="100" step="1"
+                 style="width:70px;text-align:center"
+                 title="Platform's share of cycle swap profit">
+          <span style="font-size:12px;color:#888">%</span>
+        </div>
+      </td>
       <td class="text-end">
         <button class="ui-btn px-3 save-btn" data-user-id="${user.id}" disabled>Save</button>
-        ${user.username !== 'adabs' && user.username !== 'alessandro' ? 
-          `<button class="btn btn-danger btn-sm delete-btn ms-2" data-user-id="${user.id}">Delete</button>` : ''}
+        <button class="btn btn-danger btn-sm delete-btn ms-2" data-user-id="${user.id}">Delete</button>
       </td>
     `;
     tbody.appendChild(row);
   });
 
-  // Enable save button when something changes
-  document.querySelectorAll(".role-select, .can-trade-toggle, .can-calculator-toggle").forEach(input => {
+  attachTableListeners();
+}
+
+// ─────────────────────────────────────────────
+//  SLOTS MODAL — works for ANY user, ANY slot count (including 0)
+// ─────────────────────────────────────────────
+let modalNextSlot = 1;
+let bsModal       = null;
+
+async function openSlotsModal(userId) {
+  if (!bsModal) bsModal = new bootstrap.Modal(document.getElementById("slotsModal"));
+  document.getElementById("slotsModalTitle").textContent = "Loading…";
+  document.getElementById("slotsModalBody").innerHTML =
+    `<div class="text-center py-3" style="color:#888;">Loading…</div>`;
+  bsModal.show();
+  await refreshModalContent(userId);
+}
+
+async function refreshModalContent(userId) {
+  try {
+    const res  = await fetch(`/admin/user-slots/${userId}`, {
+      headers: { "Authorization": "Bearer " + token }
+    });
+    const data = await res.json();
+
+    const user     = data.user;
+    const slots    = data.slots || [];
+
+    modalNextSlot = slots.length > 0
+      ? Math.max(...slots.map(s => s.slot_number)) + 1
+      : 1;
+
+    const provisioned = slots.filter(s => s.status !== "pending").length;
+    document.getElementById("slotsModalTitle").textContent =
+      `${user.username} — Slots (${provisioned}/${slots.length} provisioned)`;
+
+    let html = `<div class="slot-allocation-panel" style="background:transparent;border:none;padding:0;">`;
+
+    if (slots.length === 0) {
+      html += `<p style="font-size:13px;color:#666;padding:4px 0 10px;">
+        No slots yet — use the form below to provision the first one.
+      </p>`;
+    }
+
+    // Existing slot rows
+    for (const s of [...slots].sort((a, b) => a.slot_number - b.slot_number)) {
+      const prov = s.status !== "pending";
+      html += `
+        <div class="slot-row" id="modal-slot-row-${userId}-${s.slot_number}">
+          <span class="slot-badge status-${s.status}">Slot ${s.slot_number}</span>
+          ${prov ? `
+            <div class="vps-summary">
+              <strong>${s.vps_host}</strong> · ${s.vps_username}
+              <span class="slot-badge status-${s.status} ms-2">${s.status}</span>
+            </div>
+            <button class="btn-allocate allocated" disabled>Provisioned ✓</button>
+          ` : `
+            <div class="slot-vps-form">
+              <input type="text"     placeholder="VPS host / IP" id="m-vps-host-${userId}-${s.slot_number}">
+              <input type="text"     placeholder="Username"       id="m-vps-user-${userId}-${s.slot_number}">
+              <input type="password" placeholder="Password"       id="m-vps-pass-${userId}-${s.slot_number}">
+            </div>
+            <button class="btn-allocate" onclick="allocateSlotModal(${userId}, ${s.slot_number})">
+              Provision VPS
+            </button>
+          `}
+        </div>`;
+    }
+
+    html += `</div>`;
+
+    // Always show the "add new slot" form
+    html += `
+      <div class="new-slot-form">
+        <div class="nsf-label">Add Slot ${modalNextSlot}</div>
+        <div class="field">
+          <label>VPS Host / IP</label>
+          <input type="text" id="new-vps-host" placeholder="e.g. 203.0.113.10">
+        </div>
+        <div class="field">
+          <label>Username</label>
+          <input type="text" id="new-vps-user" placeholder="Administrator">
+        </div>
+        <div class="field">
+          <label>Password</label>
+          <input type="password" id="new-vps-pass" placeholder="••••••••">
+        </div>
+        <button class="btn-allocate" style="align-self:flex-end;"
+                onclick="addNewSlot(${userId})">
+          + Provision
+        </button>
+      </div>
+    `;
+
+    document.getElementById("slotsModalBody").innerHTML = html;
+
+  } catch (err) {
+    console.error(err);
+    document.getElementById("slotsModalBody").innerHTML =
+      `<div style="color:#f87171;">Failed to load slot data.</div>`;
+  }
+}
+
+async function allocateSlotModal(userId, slotNumber) {
+  const host = document.getElementById(`m-vps-host-${userId}-${slotNumber}`)?.value.trim();
+  const user = document.getElementById(`m-vps-user-${userId}-${slotNumber}`)?.value.trim();
+  const pass = document.getElementById(`m-vps-pass-${userId}-${slotNumber}`)?.value.trim();
+  if (!host || !user || !pass) { alert("Fill in host, username, and password."); return; }
+  const ok = await doAllocate(userId, slotNumber, host, user, pass);
+  if (ok) { await refreshModalContent(userId); loadProfiles(); }
+}
+
+async function addNewSlot(userId) {
+  const host = document.getElementById("new-vps-host")?.value.trim();
+  const user = document.getElementById("new-vps-user")?.value.trim();
+  const pass = document.getElementById("new-vps-pass")?.value.trim();
+  if (!host || !user || !pass) { alert("Fill in host, username, and password."); return; }
+  const ok = await doAllocate(userId, modalNextSlot, host, user, pass);
+  if (ok) { await refreshModalContent(userId); loadProfiles(); }
+}
+
+// ─────────────────────────────────────────────
+//  SHARED ALLOCATE  →  POST /admin/allocate-slot
+// ─────────────────────────────────────────────
+async function doAllocate(userId, slotNumber, host, username, password) {
+  try {
+    const res = await fetch("/admin/allocate-slot", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({
+        user_id:      userId,
+        slot_number:  slotNumber,
+        vps_host:     host,
+        vps_username: username,
+        vps_password: password,
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) { alert(data.detail || "Failed to allocate slot."); return false; }
+    return true;
+  } catch (err) {
+    console.error(err);
+    alert("Connection error");
+    return false;
+  }
+}
+
+// ─────────────────────────────────────────────
+//  TABLE LISTENERS
+// ─────────────────────────────────────────────
+function attachTableListeners() {
+  document.querySelectorAll(".role-select, .can-trade-toggle, .share-pct-input").forEach(input => {
     input.addEventListener("change", () => {
-      const userId = input.dataset.userId;
-      const saveBtn = document.querySelector(`.save-btn[data-user-id="${userId}"]`);
-      
-      if (saveBtn) {
-        saveBtn.disabled = false;
-        saveBtn.classList.add("active-save");
-      }
+      const btn = document.querySelector(`.save-btn[data-user-id="${input.dataset.userId}"]`);
+      if (btn) { btn.disabled = false; btn.classList.add("active-save"); }
     });
   });
 
-  // Enable save button when password is typed
   document.querySelectorAll(".password-input").forEach(input => {
     input.addEventListener("input", () => {
-      const userId = input.dataset.userId;
-      const saveBtn = document.querySelector(`.save-btn[data-user-id="${userId}"]`);
-
-      if (saveBtn) {
-        saveBtn.disabled = false;
-        saveBtn.classList.add("active-save");
-      }
+      const btn = document.querySelector(`.save-btn[data-user-id="${input.dataset.userId}"]`);
+      if (btn) { btn.disabled = false; btn.classList.add("active-save"); }
     });
   });
 
-  document.addEventListener("click", (e) => {
+  document.addEventListener("click", e => {
     if (e.target.classList.contains("toggle-password")) {
-      const input = e.target.closest(".input-group").querySelector("input");
-
-      if (input.type === "password") {
-        input.type = "text";
-        e.target.textContent = "🙈";
-      } else {
-        input.type = "password";
-        e.target.textContent = "👁";
-      }
+      const inp = e.target.closest(".input-group").querySelector("input");
+      inp.type = inp.type === "password" ? "text" : "password";
+      e.target.textContent = inp.type === "password" ? "👁" : "🙈";
     }
   });
 
-  // Attach save and delete listeners (you can expand this later)
   document.querySelectorAll(".save-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
-      const userId = btn.dataset.userId;
-      const passwordInput = document.querySelector(`.password-input[data-user-id="${userId}"]`);
-      const password = passwordInput.value.trim();
-      const roleSelect = document.querySelector(`.role-select[data-user-id="${userId}"]`);
-      const canTradeCheck = document.querySelector(`.can-trade-toggle[data-user-id="${userId}"]`);
-      const canCalculatorCheck = document.querySelector(`.can-calculator-toggle[data-user-id="${userId}"]`);
-
+      const userId   = btn.dataset.userId;
+      const password = document.querySelector(`.password-input[data-user-id="${userId}"]`)?.value.trim();
+      const role     = document.querySelector(`.role-select[data-user-id="${userId}"]`)?.value;
+      const canTrade      = document.querySelector(`.can-trade-toggle[data-user-id="${userId}"]`)?.checked;
+      const sharePctRaw   = document.querySelector(`.share-pct-input[data-user-id="${userId}"]`)?.value;
+      const sharePct      = sharePctRaw != null ? parseFloat(sharePctRaw) : null;
       try {
         const res = await fetch("/admin/update-user", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer " + token
-          },
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
           body: JSON.stringify({
-            user_id: parseInt(userId),
-            role: roleSelect.value,
-            can_trade: canTradeCheck.checked,
-            can_use_calculator: canCalculatorCheck.checked,
-            password: password || null
+            user_id:          parseInt(userId),
+            role,
+            can_trade:        canTrade,
+            password:         password || null,
+            profit_share_pct: sharePct,
           })
         });
-
         const data = await res.json();
-
         if (res.ok) {
           alert(data.message || "User updated");
-
-          const saveBtn = document.querySelector(`.save-btn[data-user-id="${userId}"]`);
-          if (saveBtn) {
-            saveBtn.disabled = true;
-            saveBtn.classList.remove("active-save");
-          }
-
+          btn.disabled = true;
+          btn.classList.remove("active-save");
           loadProfiles();
         } else {
           alert(data.detail || "Update failed");
         }
-
-      } catch (err) {
-        console.error(err);
-        alert("Connection error");
-      }
+      } catch { alert("Connection error"); }
     });
   });
 
-  // DELETE USER
   document.querySelectorAll(".delete-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
+      if (!confirm("Delete this user and all their data?")) return;
       const userId = btn.dataset.userId;
-
-      const confirmDelete = confirm("Are you sure you want to delete this user? This will remove ALL their trading accounts.");
-
-      if (!confirmDelete) return;
-
       try {
         const res = await fetch(`/admin/delete-user/${userId}`, {
           method: "DELETE",
-          headers: {
-            "Authorization": "Bearer " + token
-          }
+          headers: { "Authorization": "Bearer " + token }
         });
-
         const data = await res.json();
-
-        if (res.ok) {
-          alert(data.message || "User deleted");
-          loadProfiles(); // refresh table
-        } else {
-          alert(data.detail || "Delete failed");
-        }
-
-      } catch (err) {
-        console.error(err);
-        alert("Connection error");
-      }
+        if (res.ok) { alert(data.message || "Deleted"); loadProfiles(); }
+        else alert(data.detail || "Delete failed");
+      } catch { alert("Connection error"); }
     });
   });
 }
 
-function startHeartbeat(pageName) {
-  setInterval(() => {
-    fetch("admin/activity/heartbeat", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + token,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        page: pageName,
-        action: "heartbeat"
-      })
-    });
-  }, 15000);
-}
-
-// Approve / Decline function
+// ─────────────────────────────────────────────
+//  APPROVE / DECLINE
+// ─────────────────────────────────────────────
 async function updateApproval(userId, decision, note) {
   try {
     const res = await fetch("/admin/approve", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + token
-      },
-      body: JSON.stringify({
-        user_id: parseInt(userId),
-        decision: decision,
-        approval_note: note
-      })
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+      body: JSON.stringify({ user_id: parseInt(userId), decision, approval_note: note })
     });
-
     const data = await res.json();
-
-    if (res.ok) {
-      alert(data.message || "Action completed");
-      loadProfiles(); // Refresh the page
-    } else {
-      alert(data.detail || "Failed to update");
-    }
-  } catch (err) {
-    alert("Connection error");
-  }
+    if (res.ok) { alert(data.message || "Done"); loadProfiles(); }
+    else alert(data.detail || "Failed");
+  } catch { alert("Connection error"); }
 }
 
-// Initial load
+function startHeartbeat(pageName) {
+  setInterval(() => {
+    fetch("/admin/activity/heartbeat", {
+      method: "POST",
+      headers: { "Authorization": "Bearer " + token, "Content-Type": "application/json" },
+      body: JSON.stringify({ page: pageName, action: "heartbeat" })
+    });
+  }, 15000);
+}
+
 loadProfiles();
 startHeartbeat("profile-manage");
 </script>
-
 </body>
 </html>
