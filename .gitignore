@@ -22,7 +22,11 @@ test.ipynb
 lines.txt
 .env
 .metaapi/
+.claude/
 images/
 alembic/
 resources/
+alembic/
+alembic.ini
+migrations/
 docs/
