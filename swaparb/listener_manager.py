@@ -3,7 +3,7 @@
 import asyncio
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
-from app.model import TradingAccount, CopyRelationship
+from app.model import TradingAccount, CopyRelationship, UserSlot
 from swaparb.listener import MetaApiTradeListener
 from swaparb.api_client import get_metaapi_client, reset_metaapi_client
 from swaparb.connection_store import set_connection, get_connection, remove_connection, get_all_connections
@@ -137,20 +137,32 @@ class ListenerManager:
 
         db: Session = SessionLocal()
         try:
-            accounts = db.query(TradingAccount).all()
+            # Reuse the same slot-aware logic: only re-queue accounts that are
+            # part of an active slot (or legacy CopyRelationship) and deployed.
+            active_slots = db.query(UserSlot).filter(UserSlot.status == "active").all()
+            slot_account_ids: set[int] = {
+                aid for slot in active_slots
+                for aid in (slot.master_account_id, slot.slave_account_id)
+                if aid
+            }
+
+            legacy_rels = db.query(CopyRelationship).filter(
+                CopyRelationship.slave_account_id.isnot(None)
+            ).all()
+            for rel in legacy_rels:
+                for aid in (rel.master_account_id, rel.slave_account_id):
+                    if aid:
+                        slot_account_ids.add(aid)
+
+            accounts = db.query(TradingAccount).filter(
+                TradingAccount.id.in_(slot_account_ids)
+            ).all()
 
             for acc in accounts:
                 if not acc.state or acc.state.upper() != "DEPLOYED":
                     continue
-
-                is_used = db.query(CopyRelationship).filter(
-                    (CopyRelationship.master_account_id == acc.id) |
-                    (CopyRelationship.slave_account_id == acc.id)
-                ).first()
-
-                if not is_used:
+                if not acc.metaapi_account_id:
                     continue
-
                 if get_connection(acc.metaapi_account_id) is None:
                     try:
                         self._reconnect_queue.put_nowait(acc.metaapi_account_id)
@@ -363,20 +375,47 @@ class ListenerManager:
         db: Session = SessionLocal()
 
         try:
+            # ── Build the set of account IDs that should have active listeners ──
+            # An account needs a listener when it is part of an *active* slot
+            # AND is deployed.  Paused / pending slots should not have listeners.
+            # We also support the legacy path (manual CopyRelationship without a
+            # UserSlot row) so existing setups continue to work.
+
+            should_listen: set[int] = set()   # DB TradingAccount.id values
+
+            # 1. Slot-based (new system): active slots only
+            active_slots = db.query(UserSlot).filter(UserSlot.status == "active").all()
+            for slot in active_slots:
+                for acct_id in (slot.master_account_id, slot.slave_account_id):
+                    if acct_id:
+                        should_listen.add(acct_id)
+
+            # 2. Legacy path: manual CopyRelationships not attached to any slot
+            slot_account_ids = {aid for slot in active_slots
+                                for aid in (slot.master_account_id, slot.slave_account_id)
+                                if aid}
+            legacy_rels = db.query(CopyRelationship).filter(
+                CopyRelationship.slave_account_id.isnot(None)
+            ).all()
+            for rel in legacy_rels:
+                for acct_id in (rel.master_account_id, rel.slave_account_id):
+                    if acct_id and acct_id not in slot_account_ids:
+                        should_listen.add(acct_id)
+
+            # ── Now iterate every account and start / stop listeners ──
             accounts = db.query(TradingAccount).all()
 
             for acc in accounts:
-                if not acc.state or acc.state.upper() != "DEPLOYED":
+                if acc.id not in should_listen:
+                    # Not in any active slot and no legacy relationship — remove
                     await self._remove_listener(acc)
                     continue
 
-                is_used = db.query(CopyRelationship).filter(
-                    (CopyRelationship.master_account_id == acc.id) |
-                    (CopyRelationship.slave_account_id == acc.id)
-                ).first()
-
-                if not is_used:
+                if not acc.state or acc.state.upper() != "DEPLOYED":
+                    # In a qualifying slot but not deployed yet — remove listener
+                    # (will be re-attached automatically once the user deploys)
                     await self._remove_listener(acc)
+                    print(f"[Sync] Skipping {acc.id} — in active slot but state={acc.state}")
                     continue
 
                 await self._ensure_listener(acc)
