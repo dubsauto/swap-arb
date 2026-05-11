@@ -199,6 +199,7 @@ async def deploy_mt5_account(
             message="Deploy request initiated"
         )
 
+        # Invalidate any cached account/connection objects before deploying
         if trading_account.metaapi_account_id:
             await rpc_pool.invalidate(trading_account.metaapi_account_id)
 
@@ -210,6 +211,9 @@ async def deploy_mt5_account(
             trading_account.connection_status = "connected"
             trading_account.last_connected_at = datetime.utcnow()
             db.commit()
+            # Evict again post-deploy so the next get_account fetches fresh
+            # state (DEPLOYED) from MetaAPI rather than stale cached state
+            await rpc_pool.invalidate(trading_account.metaapi_account_id)
 
             # ✅ SUCCESS LOG
             log(db=db,

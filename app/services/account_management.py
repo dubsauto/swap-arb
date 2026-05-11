@@ -51,6 +51,14 @@ class MT5AccountManager:
             # Pre-cache the account object in the pool
             rpc_pool._accounts[new_account.id] = new_account
 
+            # Force undeploy — MetaAPI auto-deploys on creation.
+            # Users must explicitly click Deploy before the account goes live.
+            try:
+                if new_account.state != "UNDEPLOYED":
+                    await new_account.undeploy()
+            except Exception as ue:
+                print(f"⚠️  Could not undeploy new account {new_account.id} on creation: {ue}")
+
             return {"success": True, "account_id": new_account.id}
 
         except Exception as e:
@@ -113,11 +121,18 @@ class MT5AccountManager:
             now = time.time()
 
             cached = self._metrics_cache.get(account_id)
-            if cached and now - cached["ts"] < 5:
+            # Only serve cache for real metrics, never for state-only stubs
+            if cached and now - cached["ts"] < 5 and "_account_state" not in cached["data"]:
                 return cached["data"]
 
             try:
                 account = await rpc_pool.get_account(account_id)
+
+                # Always reload — ensures state is fresh after deploy/undeploy
+                try:
+                    await asyncio.wait_for(account.reload(), timeout=8)
+                except Exception as re:
+                    print(f"[Metrics] reload warning {account_id}: {re}")
 
                 dedicated_ip = None
                 try:
@@ -125,8 +140,10 @@ class MT5AccountManager:
                 except Exception:
                     pass
 
-                if account.state != "DEPLOYED":
-                    return {}
+                current_state = (account.state or "").upper()
+                if current_state != "DEPLOYED":
+                    # Return structured state so dashboard can show the right message
+                    return {"_account_state": current_state.lower()}
 
                 connection = await rpc_pool.get_connection(account_id)
 
@@ -206,6 +223,52 @@ class MT5AccountManager:
                 print(f"[Error] {account_id}: {e}")
                 return {}
 
+
+    # =========================
+    # SYMBOL SPECIFICATION
+    # =========================
+    async def get_symbol_spec(self, account_id: str, symbol: str) -> Dict:
+        """Fetch swap rates and contract details for a symbol from a deployed account."""
+        try:
+            connection = await rpc_pool.get_connection(account_id)
+            spec = await asyncio.wait_for(
+                connection.get_symbol_specification(symbol),
+                timeout=8,
+            )
+            if not spec:
+                return {"error": "Symbol not found"}
+            return {
+                "swap_long":           spec.get("swapLong"),
+                "swap_short":          spec.get("swapShort"),
+                "swap_rollover3_days": spec.get("swapRollover3Days"),
+                "swap_mode":           spec.get("swapMode"),
+                "contract_size":       spec.get("contractSize"),
+                "digits":              spec.get("digits"),
+            }
+        except Exception as e:
+            print(f"[SymbolSpec] {account_id}/{symbol}: {e}")
+            return {"error": str(e)}
+
+    # =========================
+    # SYMBOL PRICE (live bid/ask)
+    # =========================
+    async def get_symbol_price(self, account_id: str, symbol: str) -> Dict:
+        """Fetch live bid/ask price for a symbol from a deployed account."""
+        try:
+            connection = await rpc_pool.get_connection(account_id)
+            price = await asyncio.wait_for(
+                connection.get_symbol_price(symbol),
+                timeout=8,
+            )
+            if not price:
+                return {"error": "Symbol not found"}
+            return {
+                "bid": price.get("bid"),
+                "ask": price.get("ask"),
+            }
+        except Exception as e:
+            print(f"[SymbolPrice] {account_id}/{symbol}: {e}")
+            return {"error": str(e)}
 
     # =========================
     # CLOSE POSITION

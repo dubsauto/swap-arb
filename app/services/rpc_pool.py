@@ -268,10 +268,17 @@ class RpcConnectionPool:
         self._accounts.pop(account_id, None)
         account = await self.get_account(account_id)
 
+        # Reload to get the freshest state from MetaAPI before checking
+        try:
+            await asyncio.wait_for(account.reload(), timeout=8)
+        except Exception as re:
+            print(f"[RpcPool] reload warning → {account_id}: {re}")
+
         if account.state != "DEPLOYED":
-            print(f"[RpcPool] Deploying → {account_id}")
-            await account.deploy()
-            await asyncio.sleep(5)
+            raise Exception(
+                f"Account {account_id} is not deployed (state={account.state}). "
+                f"Deploy the account before connecting."
+            )
 
         # Wait for MetaApi to report the account is broker-connected.
         # Cap at 30s — some brokers report DISCONNECTED even when RPC works,

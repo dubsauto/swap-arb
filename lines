@@ -176,5 +176,8 @@ with engine.begin() as conn:
 
 running
 python -u run_worker.py
+uvicorn app.server:app --host 0.0.0.0 --port $PORT
 
+postgresql://swap_arb:P3VAUIlFUlTCCjCfkitTolT8MXMSTBB6@dpg-d7us14gsfn5c73bg8kag-a/swap_arb_db
 
+postgresql://swap_arb:P3VAUIlFUlTCCjCfkitTolT8MXMSTBB6@dpg-d7us14gsfn5c73bg8kag-a.frankfurt-postgres.render.com/swap_arb_db

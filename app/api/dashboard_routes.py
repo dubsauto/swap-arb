@@ -106,8 +106,8 @@ def add_symbol_map(
     if not slot:
         raise HTTPException(404, "Slot not found")
 
-    master_symbol = (body.get("master_symbol") or "").strip().upper()
-    slave_symbol  = (body.get("slave_symbol")  or "").strip().upper()
+    master_symbol = (body.get("master_symbol") or "").strip()
+    slave_symbol  = (body.get("slave_symbol")  or "").strip()
     if not master_symbol or not slave_symbol:
         raise HTTPException(400, "master_symbol and slave_symbol are required")
 
@@ -143,6 +143,17 @@ async def get_slot_metrics(
         raise HTTPException(400, "Account not registered with MetaAPI — deploy it first")
 
     metrics = await account_manager.get_account_metrics(account.metaapi_account_id)
+
+    # Reconcile MetaAPI transitional states against the user's DB intent.
+    # When the user clicked Deploy, DB state is set to "deployed" immediately.
+    # MetaAPI may still be finishing a prior UNDEPLOYING transition before it
+    # progresses to DEPLOYING → DEPLOYED.  Showing "undeploying" in that window
+    # is confusing — normalise it to "deploying" so the UI message is correct.
+    metaapi_state = (metrics.get("_account_state") or "").lower()
+    db_state      = (account.state or "").lower()
+    if metaapi_state == "undeploying" and db_state == "deployed":
+        metrics = {"_account_state": "deploying"}
+
     return {"metrics": metrics, "account_id": account.id, "login": account.login}
 
 
@@ -252,6 +263,42 @@ def update_my_notification_prefs(
     return {"message": "Preferences saved."}
 
 
+@router.get("/symbol-spec")
+async def get_symbol_spec(
+    symbol: str,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    """Return swap rates for a symbol, fetched from the user's first deployed master account."""
+    from app.model import UserSlot, TradingAccount
+
+    payload  = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    user_id  = payload.get("user_id")
+
+    slots = db.query(UserSlot).filter_by(user_id=user_id, status="active").all()
+    for slot in slots:
+        if not slot.master_account_id:
+            continue
+        master = db.query(TradingAccount).get(slot.master_account_id)
+        if not master or not master.metaapi_account_id:
+            continue
+        if (master.state or "").upper() != "DEPLOYED":
+            continue
+        spec = await account_manager.get_symbol_spec(master.metaapi_account_id, symbol)
+        if spec and not spec.get("error"):
+            # Also fetch live bid/ask so frontend can compute spread pips
+            try:
+                price = await account_manager.get_symbol_price(master.metaapi_account_id, symbol)
+                if price and not price.get("error"):
+                    spec["bid"] = price.get("bid")
+                    spec["ask"] = price.get("ask")
+            except Exception:
+                pass
+            return spec
+
+    raise HTTPException(404, "No deployed account available or symbol not found")
+
+
 def _account_summary(acct):
     return {
         "id":                acct.id,
@@ -260,6 +307,7 @@ def _account_summary(acct):
         "server":            acct.server,
         "connection_status": acct.connection_status,
         "state":             acct.state,
+        "listener_active":   bool(acct.listener_active),
         "has_metaapi":       bool(acct.metaapi_account_id),
     }
  
@@ -316,7 +364,7 @@ async def add_account_to_slot(
         existing.manual_trades    = body.manual_trades
         existing.use_dedicated_ip = body.use_dedicated_ip
         existing.metaapi_account_id = metaapi_account_id
-        existing.state            = "created"
+        existing.state            = "undeployed"
         acct = existing
     else:
         acct = TradingAccount(
@@ -329,7 +377,7 @@ async def add_account_to_slot(
             use_dedicated_ip  = body.use_dedicated_ip,
             magic             = slot_id * 1000 + slot.slot_number,
             metaapi_account_id= metaapi_account_id,
-            state             = "created",
+            state             = "undeployed",
         )
         db.add(acct)
 
