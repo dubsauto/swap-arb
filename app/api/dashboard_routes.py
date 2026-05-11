@@ -1,4 +1,5 @@
 # app/api/dashboard_routes.py
+import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -273,6 +274,116 @@ def update_my_notification_prefs(
 
     db.commit()
     return {"message": "Preferences saved."}
+
+
+@router.get("/my-slots/{slot_id}/calc-data")
+async def get_slot_calc_data(
+    slot_id: int,
+    symbol: str,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    """Return all market data needed for the swap calculator (swap, spread, commission, quote rate)."""
+    from app.model import UserSlot, TradingAccount
+
+    payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    user_id = payload.get("user_id")
+
+    slot = db.query(UserSlot).filter_by(id=slot_id, user_id=user_id).first()
+    if not slot:
+        raise HTTPException(404, "Slot not found")
+    if not slot.master_account_id:
+        raise HTTPException(400, "No master account linked to this slot")
+
+    master = db.query(TradingAccount).get(slot.master_account_id)
+    if not master or not master.metaapi_account_id:
+        raise HTTPException(400, "Master account not registered with MetaAPI")
+    if (master.state or "").upper() != "DEPLOYED":
+        raise HTTPException(400, "Master account is not deployed — deploy it first")
+
+    slave = db.query(TradingAccount).get(slot.slave_account_id) if slot.slave_account_id else None
+
+    symbol = symbol.strip()
+
+    # Master: spec + price + account info (parallel)
+    master_spec, master_price, master_info = await asyncio.gather(
+        account_manager.get_symbol_spec(master.metaapi_account_id, symbol),
+        account_manager.get_symbol_price(master.metaapi_account_id, symbol),
+        account_manager.get_account_info(master.metaapi_account_id),
+    )
+
+    if master_spec.get("error"):
+        raise HTTPException(400, f"Symbol data error: {master_spec['error']}")
+
+    # Slave: price + spec (if deployed)
+    slave_price: dict = {}
+    slave_spec: dict = {}
+    if slave and slave.metaapi_account_id and (slave.state or "").upper() == "DEPLOYED":
+        slave_price, slave_spec = await asyncio.gather(
+            account_manager.get_symbol_price(slave.metaapi_account_id, symbol),
+            account_manager.get_symbol_spec(slave.metaapi_account_id, symbol),
+        )
+
+    # Auto-detect positive swap direction
+    swap_long  = float(master_spec.get("swap_long")  or 0)
+    swap_short = float(master_spec.get("swap_short") or 0)
+    if swap_long >= 0 and swap_short < 0:
+        direction    = "LONG"
+        swap_per_lot = swap_long
+    elif swap_short >= 0 and swap_long < 0:
+        direction    = "SHORT"
+        swap_per_lot = swap_short
+    else:
+        direction    = "LONG" if swap_long >= swap_short else "SHORT"
+        swap_per_lot = swap_long if direction == "LONG" else swap_short
+
+    # Spread calculations
+    digits   = int(master_spec.get("digits") or 5)
+    pip_size = 10 ** (-digits)
+
+    def _spread_pips(bid, ask):
+        if bid is None or ask is None:
+            return None
+        return round((float(ask) - float(bid)) / pip_size, 1)
+
+    master_spread = _spread_pips(master_price.get("bid"), master_price.get("ask"))
+    slave_spread  = _spread_pips(slave_price.get("bid"),  slave_price.get("ask"))
+
+    # Quote rate: quote ccy → USD (master prices as reference)
+    master_bid = master_price.get("bid")
+    quote_ccy  = symbol[-3:] if len(symbol) >= 6 else ""
+    base_ccy   = symbol[:3]
+    quote_rate = 1.0
+    if quote_ccy == "USD":
+        quote_rate = 1.0
+    elif base_ccy == "USD" and master_bid and float(master_bid) > 0:
+        quote_rate = round(1.0 / float(master_bid), 6)
+
+    return {
+        "symbol":              symbol,
+        "direction":           direction,
+        "swap_long":           swap_long,
+        "swap_short":          swap_short,
+        "swap_per_lot":        swap_per_lot,
+        "contract_size":       master_spec.get("contract_size"),
+        "digits":              digits,
+        "swap_rollover3_days": master_spec.get("swap_rollover3_days"),
+        "quote_rate":          quote_rate,
+        "master_balance":      master_info.get("balance"),
+        "master_leverage":     master_info.get("leverage"),
+        "master": {
+            "spread_pips":        master_spread,
+            "commission_per_lot": master_spec.get("commission_per_lot"),
+            "bid":                master_price.get("bid"),
+            "ask":                master_price.get("ask"),
+        },
+        "slave": {
+            "spread_pips":        slave_spread,
+            "commission_per_lot": slave_spec.get("commission_per_lot") if slave_spec else None,
+            "bid":                slave_price.get("bid"),
+            "ask":                slave_price.get("ask"),
+        },
+    }
 
 
 @router.get("/symbol-spec")

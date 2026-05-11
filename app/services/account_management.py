@@ -231,7 +231,7 @@ class MT5AccountManager:
     # SYMBOL SPECIFICATION
     # =========================
     async def get_symbol_spec(self, account_id: str, symbol: str) -> Dict:
-        """Fetch swap rates and contract details for a symbol from a deployed account."""
+        """Fetch swap rates, contract details and commission for a symbol from a deployed account."""
         try:
             connection = await rpc_pool.get_connection(account_id)
             spec = await asyncio.wait_for(
@@ -240,6 +240,30 @@ class MT5AccountManager:
             )
             if not spec:
                 return {"error": "Symbol not found"}
+
+            # Commission extraction — try multiple MetaAPI field structures
+            commission_per_lot = None
+            comm_raw = spec.get("commissions") or spec.get("dealCommissions")
+            if isinstance(comm_raw, list) and comm_raw:
+                for c in comm_raw:
+                    if isinstance(c, dict):
+                        v = c.get("commission")
+                        if v is not None:
+                            try:
+                                commission_per_lot = float(v)
+                                break
+                            except (TypeError, ValueError):
+                                pass
+            if commission_per_lot is None:
+                for field in ("commissionLot", "commissionRate", "commission"):
+                    v = spec.get(field)
+                    if v is not None:
+                        try:
+                            commission_per_lot = float(v)
+                            break
+                        except (TypeError, ValueError):
+                            pass
+
             return {
                 "swap_long":           spec.get("swapLong"),
                 "swap_short":          spec.get("swapShort"),
@@ -247,10 +271,32 @@ class MT5AccountManager:
                 "swap_mode":           spec.get("swapMode"),
                 "contract_size":       spec.get("contractSize"),
                 "digits":              spec.get("digits"),
+                "commission_per_lot":  commission_per_lot,
             }
         except Exception as e:
             print(f"[SymbolSpec] {account_id}/{symbol}: {e}")
             return {"error": str(e)}
+
+    # =========================
+    # ACCOUNT INFO
+    # =========================
+    async def get_account_info(self, account_id: str) -> Dict:
+        """Fetch basic account info (balance, leverage) from a deployed account."""
+        try:
+            connection = await rpc_pool.get_connection(account_id)
+            info = await asyncio.wait_for(
+                connection.get_account_information(),
+                timeout=5,
+            )
+            if not info:
+                return {}
+            return {
+                "balance":  info.get("balance"),
+                "leverage": info.get("leverage"),
+            }
+        except Exception as e:
+            print(f"[AccountInfo] {account_id}: {e}")
+            return {}
 
     # =========================
     # SYMBOL PRICE (live bid/ask)
