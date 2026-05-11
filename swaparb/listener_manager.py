@@ -20,6 +20,8 @@ GLOBAL_OUTAGE_COOLDOWN = 45
 
 
 class ListenerManager:
+    _sync_count: int = 0  # class-level counter for periodic diagnostic logs
+
     def __init__(self):
         self._lock = asyncio.Lock()
         self._running = False
@@ -210,6 +212,33 @@ class ListenerManager:
                 await asyncio.sleep(10)
 
     # =====================================
+    # STARTUP DIAGNOSTIC
+    # =====================================
+    def _log_startup_state(self):
+        db: Session = SessionLocal()
+        try:
+            all_slots   = db.query(UserSlot).all()
+            all_accts   = db.query(TradingAccount).all()
+            active_rels = db.query(CopyRelationship).filter(CopyRelationship.slave_account_id.isnot(None)).all()
+
+            print(f"[Startup] Slots ({len(all_slots)}):")
+            for s in all_slots:
+                print(f"  slot#{s.slot_number} user={s.user_id} status={s.status} master={s.master_account_id} slave={s.slave_account_id}")
+
+            print(f"[Startup] TradingAccounts ({len(all_accts)}):")
+            for a in all_accts:
+                print(f"  id={a.id} login={a.login} state={a.state!r} metaapi_id={a.metaapi_account_id!r}")
+
+            print(f"[Startup] CopyRelationships with slave ({len(active_rels)}):")
+            for r in active_rels:
+                print(f"  master={r.master_account_id} slave={r.slave_account_id}")
+
+        except Exception as e:
+            print(f"[Startup] Diagnostic failed: {e}")
+        finally:
+            db.close()
+
+    # =====================================
     # START MANAGER
     # =====================================
     async def start(self):
@@ -219,6 +248,7 @@ class ListenerManager:
         self._api = get_metaapi_client()
         self._running = True
         print("🚀 Listener Manager started")
+        self._log_startup_state()
 
         asyncio.create_task(self._keep_connections_alive())
         asyncio.create_task(self._reconnect_worker())
@@ -372,6 +402,9 @@ class ListenerManager:
         if self._global_outage:
             return
 
+        ListenerManager._sync_count += 1
+        periodic = (ListenerManager._sync_count % 12 == 1)  # log every ~60s
+
         db: Session = SessionLocal()
 
         try:
@@ -402,6 +435,20 @@ class ListenerManager:
                     if acct_id and acct_id not in slot_account_ids:
                         should_listen.add(acct_id)
 
+            if periodic:
+                all_slots = db.query(UserSlot).all()
+                slot_summary = ", ".join(
+                    f"slot#{s.slot_number}(user={s.user_id},status={s.status},m={s.master_account_id},s={s.slave_account_id})"
+                    for s in all_slots
+                ) or "none"
+                print(f"[Sync] Slots in DB: {slot_summary}")
+                print(f"[Sync] should_listen={should_listen} | active_slots={len(active_slots)} | legacy_rels={len([r for r in legacy_rels if r.slave_account_id])}")
+
+            if not should_listen:
+                if periodic:
+                    print("[Sync] ⚠️  should_listen is EMPTY — no active slots and no legacy CopyRelationships with slave. Listeners will not start.")
+                return
+
             # ── Now iterate every account and start / stop listeners ──
             accounts = db.query(TradingAccount).all()
 
@@ -415,7 +462,7 @@ class ListenerManager:
                     # In a qualifying slot but not deployed yet — remove listener
                     # (will be re-attached automatically once the user deploys)
                     await self._remove_listener(acc)
-                    print(f"[Sync] Skipping {acc.id} — in active slot but state={acc.state}")
+                    print(f"[Sync] Skipping {acc.id} — in active slot but state={acc.state!r}")
                     continue
 
                 await self._ensure_listener(acc)
@@ -450,6 +497,7 @@ class ListenerManager:
     async def _ensure_listener(self, acc: TradingAccount):
         account_id = acc.metaapi_account_id
         if not account_id:
+            print(f"[Sync] ⚠️  Account {acc.id} (login={acc.login}) has no metaapi_account_id — skipping listener attach")
             return
 
         async with self._lock:
