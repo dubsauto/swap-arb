@@ -416,9 +416,23 @@ class ListenerManager:
 
             should_listen: set[int] = set()   # DB TradingAccount.id values
 
-            # 1. Slot-based (new system): active slots only
-            active_slots = db.query(UserSlot).filter(UserSlot.status == "active").all()
+            # 1. Slot-based (new system): active slots only.
+            # Also pick up provisioned slots that already have both accounts linked —
+            # this handles the case where account IDs were set but status was never
+            # transitioned to "active" (e.g. direct DB edits or a past add-account bug).
+            # Auto-repair those slots so future syncs are clean.
+            active_slots = db.query(UserSlot).filter(
+                (UserSlot.status == "active") |
+                (
+                    UserSlot.master_account_id.isnot(None) &
+                    UserSlot.slave_account_id.isnot(None)
+                )
+            ).all()
             for slot in active_slots:
+                if slot.status != "active" and slot.master_account_id and slot.slave_account_id:
+                    print(f"[Sync] Auto-repairing slot#{slot.slot_number} user={slot.user_id}: both accounts set but status={slot.status!r} → setting 'active'")
+                    slot.status = "active"
+                    db.commit()
                 for acct_id in (slot.master_account_id, slot.slave_account_id):
                     if acct_id:
                         should_listen.add(acct_id)
