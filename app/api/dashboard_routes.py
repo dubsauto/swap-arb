@@ -142,6 +142,19 @@ async def get_slot_metrics(
     if not account or not account.metaapi_account_id:
         raise HTTPException(400, "Account not registered with MetaAPI — deploy it first")
 
+    db_state = (account.state or "").lower()
+
+    # Short-circuit: if the DB says the account is not deployed, return the
+    # state immediately without touching MetaAPI or the rpc_pool at all.
+    # This prevents a stream of get_account() + reload() API calls for every
+    # poll cycle while the account is simply sitting undeployed.
+    if db_state not in ("deployed",):
+        return {
+            "metrics":    {"_account_state": db_state or "undeployed"},
+            "account_id": account.id,
+            "login":      account.login,
+        }
+
     metrics = await account_manager.get_account_metrics(account.metaapi_account_id)
 
     # Reconcile MetaAPI transitional states against the user's DB intent.
@@ -150,8 +163,7 @@ async def get_slot_metrics(
     # progresses to DEPLOYING → DEPLOYED.  Showing "undeploying" in that window
     # is confusing — normalise it to "deploying" so the UI message is correct.
     metaapi_state = (metrics.get("_account_state") or "").lower()
-    db_state      = (account.state or "").lower()
-    if metaapi_state == "undeploying" and db_state == "deployed":
+    if metaapi_state == "undeploying":
         metrics = {"_account_state": "deploying"}
 
     return {"metrics": metrics, "account_id": account.id, "login": account.login}

@@ -126,6 +126,9 @@ class MT5AccountManager:
                 return cached["data"]
 
             try:
+                # Use cached account object if available — avoids a remote
+                # get_account() call when the object is already in the pool.
+                # If not cached, fetch it (one API call), then reload for state.
                 account = await rpc_pool.get_account(account_id)
 
                 # Always reload — ensures state is fresh after deploy/undeploy
