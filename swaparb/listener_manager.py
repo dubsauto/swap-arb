@@ -267,10 +267,16 @@ class ListenerManager:
                 finally:
                     db.close()
 
-                if acc:
-                    await self._ensure_listener(acc)
-                else:
+                if not acc:
                     print(f"⚠️ Account not found in DB → {account_id}, skipping reconnect")
+                elif (acc.state or "").upper() != "DEPLOYED":
+                    # User explicitly undeployed this account — do NOT redeploy it.
+                    # The _sync() loop will call _remove_listener() to clean up any
+                    # remaining state.  Reconnecting here would fight the user's intent.
+                    print(f"⏭️ DB state is '{acc.state}' — skipping reconnect for {account_id}")
+                    self._reconnect_attempts.pop(account_id, None)
+                else:
+                    await self._ensure_listener(acc)
 
                 self._reconnect_queue.task_done()
 
@@ -546,12 +552,21 @@ class ListenerManager:
         if not account_id:
             return
 
-        account = await self._api.metatrader_account_api.get_account(account_id)
+        # Fast path: if nothing is attached there is nothing to clean up.
+        # Skip the MetaAPI round-trip entirely — avoids unnecessary API calls
+        # on every 5-second sync cycle for accounts that were never listening.
+        async with self._lock:
+            has_anything = (
+                account_id in self._listeners
+                or get_connection(account_id) is not None
+                or account_id in self._attaching
+            )
+        if not has_anything:
+            return
 
-        if account.state.upper() != "UNDEPLOYED":
-            print(f"🚀 Undeploying before remove → {account_id}")
-            await account.undeploy()
-            await asyncio.sleep(7)
+        # Account is not (or no longer) deployed — we do NOT try to undeploy
+        # it again via MetaAPI here; the user or the dashboard already did that.
+        # Just clean up our local state.
 
         async with self._lock:
             connection = get_connection(account_id)
