@@ -1700,25 +1700,29 @@ function scCalc() {
     ? "Close &amp; reopen each month. Cycle cost paid every month."
     : `Close &amp; reopen every ${cycleDays} days (${cyclesPerMonth.toFixed(2)}× per month).`;
 
+  // Percentage-of-starting-balance helper — shows (X.XX%) in muted text
+  const pp = v => `<span style="color:var(--muted);font-size:10.5px"> (${((v/bal0)*100).toFixed(2)}%)</span>`;
+
   function m1Card(nrFinal) {
     const c = (nrFinal-bal0)>=0 ? '#3a7d44' : '#9a4a45';
+    const userDaily = base.dailySwap * (userPct/100);
     return `<div class="sc-model">
       <div class="sc-model-title">Static Model <span class="sc-model-badge">NO REINVEST</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Direction</span><span class="sc-row-val"
         style="color:${scData.direction==='LONG'?'#2e7d32':'#b71c1c'}">${scData.direction}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Lots</span><span class="sc-row-val">${lots.toFixed(2)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Daily swap</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(base.dailySwap)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Your daily (${userPct.toFixed(0)}%)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(base.dailySwap*(userPct/100))}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Monthly gross</span><span class="sc-row-val">${scMoney(base.monthlySwap)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Your monthly</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(userGross)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Cycle cost (once)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(cycleCost)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Daily gross</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(base.dailySwap)}${pp(base.dailySwap)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Your daily (${userPct.toFixed(0)}%)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(userDaily)}${pp(userDaily)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Monthly gross</span><span class="sc-row-val">${scMoney(base.monthlySwap)}${pp(base.monthlySwap)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Your monthly</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(userGross)}${pp(userGross)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Cycle cost (once)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(cycleCost)}${pp(cycleCost)}</span></div>
       <div class="sc-row" style="font-size:10px;color:var(--muted);flex-direction:column;gap:1px;line-height:1.6">
         <span>M.spread ${scMoney(base.masterSpreadCost)} + M.comm ${scMoney(base.masterCommCost)}</span>
         <span>S.spread ${scMoney(base.slaveSpreadCost)}  + S.comm ${scMoney(base.slaveCommCost)}</span>
       </div>
       <div class="sc-row" style="margin-top:5px;padding-top:8px;border-top:2px solid var(--line)">
         <span class="sc-row-lbl" style="font-weight:700">Final balance</span>
-        <span class="sc-row-val" style="font-size:15px;color:${c}">${scMoney(nrFinal)}</span>
+        <span class="sc-row-val" style="font-size:15px;color:${c}">${scMoney(nrFinal)}${pp(nrFinal-bal0)}</span>
       </div>
       <div style="font-size:10.5px;color:var(--muted);margin-top:8px;line-height:1.5">
         ★ Open day 1, close at end. Cycle cost paid once only.
@@ -1813,16 +1817,19 @@ function scCalc() {
     const roiT    = (prof/bal0)*100;
     const roiA    = roiT*(12/mos);
     const mrC     = (mrFinal-bal0)>=0?'#3a7d44':'#9a4a45';
+    const mrUserDaily = base.dailySwap * (userPct/100);
     const m2Html  = `<div class="sc-model">
       <div class="sc-model-title">Static Model <span class="sc-model-badge">${reinvestBadge}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Lots</span><span class="sc-row-val">${lots.toFixed(2)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Monthly gross</span><span class="sc-row-val">${scMoney(base.monthlySwap)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Your monthly</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(userGross)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Cost / month (${cyclesPerMonth.toFixed(2)}× cycle)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(monthlyCycleCost)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Monthly net</span><span class="sc-row-val" style="color:${mrNet>=0?'#3a7d44':'#9a4a45'}">${mrNet>=0?'+':''}${scMoney(mrNet)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Daily gross</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(base.dailySwap)}${pp(base.dailySwap)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Your daily (${userPct.toFixed(0)}%)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(mrUserDaily)}${pp(mrUserDaily)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Monthly gross</span><span class="sc-row-val">${scMoney(base.monthlySwap)}${pp(base.monthlySwap)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Your monthly</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(userGross)}${pp(userGross)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Cost / month (${cyclesPerMonth.toFixed(2)}× cycle)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(monthlyCycleCost)}${pp(monthlyCycleCost)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Monthly net</span><span class="sc-row-val" style="color:${mrNet>=0?'#3a7d44':'#9a4a45'}">${mrNet>=0?'+':''}${scMoney(mrNet)}${pp(mrNet)}</span></div>
       <div class="sc-row" style="margin-top:5px;padding-top:8px;border-top:2px solid var(--line)">
         <span class="sc-row-lbl" style="font-weight:700">Final balance</span>
-        <span class="sc-row-val" style="font-size:15px;color:${mrC}">${scMoney(mrFinal)}</span>
+        <span class="sc-row-val" style="font-size:15px;color:${mrC}">${scMoney(mrFinal)}${pp(mrFinal-bal0)}</span>
       </div>
       <div style="font-size:10.5px;color:var(--muted);margin-top:8px;line-height:1.5">
         ★ ${reinvestNote}
@@ -1871,16 +1878,22 @@ function scCalc() {
     const roiA=cpRows.length?cpRows[cpRows.length-1].ann:0;
     const cpBals=cpRows.map(r=>r.bal);
     const cpC=(cpFinal-bal0)>=0?'#3a7d44':'#9a4a45';
+    const cpDailyGross = cpM1.gross / SC_DAYS;
+    const cpUserDaily  = cpDailyGross * (userPct / 100);
+    const cpUserGrossM1 = cpM1.gross * (userPct / 100);
     const m2Html=`<div class="sc-model">
       <div class="sc-model-title">Compound Model <span class="sc-model-badge">${reinvestBadge}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Lots (m1)${capped?' <span style="color:#9a4a45;font-size:10px">[CAP]</span>':''}</span><span class="sc-row-val">${cpM1.lots.toFixed(2)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Monthly gross (m1)</span><span class="sc-row-val">${scMoney(cpM1.gross)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Cost / month (m1)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(cpM1.costs)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Net (m1)</span><span class="sc-row-val" style="color:${cpM1.net>=0?'#3a7d44':'#9a4a45'}">${cpM1.net>=0?'+':''}${scMoney(cpM1.net)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Total profit</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpFinal-bal0)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Daily gross (m1)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpDailyGross)}${pp(cpDailyGross)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Your daily (m1, ${userPct.toFixed(0)}%)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpUserDaily)}${pp(cpUserDaily)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Monthly gross (m1)</span><span class="sc-row-val">${scMoney(cpM1.gross)}${pp(cpM1.gross)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Your monthly (m1)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpUserGrossM1)}${pp(cpUserGrossM1)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Cost / month (m1)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(cpM1.costs)}${pp(cpM1.costs)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Net (m1)</span><span class="sc-row-val" style="color:${cpM1.net>=0?'#3a7d44':'#9a4a45'}">${cpM1.net>=0?'+':''}${scMoney(cpM1.net)}${pp(cpM1.net)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Total profit</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpFinal-bal0)}${pp(cpFinal-bal0)}</span></div>
       <div class="sc-row" style="margin-top:5px;padding-top:8px;border-top:2px solid var(--line)">
         <span class="sc-row-lbl" style="font-weight:700">Final balance</span>
-        <span class="sc-row-val" style="font-size:15px;color:${cpC}">${scMoney(cpFinal)}</span>
+        <span class="sc-row-val" style="font-size:15px;color:${cpC}">${scMoney(cpFinal)}${pp(cpFinal-bal0)}</span>
       </div>
       <div style="font-size:10.5px;color:var(--muted);margin-top:8px;line-height:1.5">
         ★ Lots grow each month with balance. ${reinvestNote}
