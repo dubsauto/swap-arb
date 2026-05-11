@@ -912,6 +912,8 @@ async function deployAccount(id) {
     const data = await res.json();
     if (!res.ok || !data.success) { alert("Deploy failed: " + (data.detail||data.error||"?")); unspinBtn(btn,"Deploy"); return; }
     await loadSlots();
+    loadMetrics(true);
+    _startDeployPoller();
   } catch(e) { alert("Deploy error: "+e.message); unspinBtn(btn,"Deploy"); }
 }
 
@@ -923,6 +925,7 @@ async function undeployAccount(id) {
     const data = await res.json();
     if (!res.ok || !data.success) { alert("Undeploy failed: "+(data.detail||data.error||"?")); unspinBtn(btn,"Undeploy"); return; }
     await loadSlots();
+    loadMetrics(true);
   } catch(e) { alert("Undeploy error: "+e.message); unspinBtn(btn,"Undeploy"); }
 }
 
@@ -1210,7 +1213,6 @@ function populateMetricsSelector(slots) {
 }
 
 function onMetricsSel() {
-  _stopMetricsPoller();          // reset poller for new slot/role selection
   clearTimeout(window._metricsTid);
   window._metricsTid = setTimeout(() => loadMetrics(false), 250);
 }
@@ -1283,13 +1285,8 @@ async function loadMetrics(silent = false) {
           <div style="font-size:12.5px;color:var(--muted);max-width:320px;margin:0 auto;line-height:1.6">${msg.sub}</div>
         </div>`;
       setText("metricsLastUpdate", "Checked " + new Date().toLocaleTimeString());
-      // Poll faster when transitioning so we catch the deployed state quickly
-      if (accountState === "deploying" || accountState === "undeploying") {
-        _stopMetricsPoller();
-        _metricsPoller = setInterval(() => {
-          if (!document.hidden && !_metricsUserIdle) loadMetrics(true);
-        }, 10_000);  // 10s during transitions
-      }
+      // Keep polling only while deploying; stop on any other terminal state
+      if (accountState !== "deploying") _stopDeployPoller();
       return;
     }
 
@@ -1299,13 +1296,10 @@ async function loadMetrics(silent = false) {
           No data returned. Ensure the account is deployed and connected.</div>`;
       return;
     }
+    // Real metrics arrived — stop the deploy poller
+    _stopDeployPoller();
     panel.innerHTML = renderMetricsHTML(m);
     setText("metricsLastUpdate", "Updated " + new Date().toLocaleTimeString());
-    // Restore normal 60s polling if we were in fast-transition mode
-    if (_metricsPoller) {
-      _stopMetricsPoller();
-      _startMetricsPoller();
-    }
   } catch(e) {
     if (!silent)
       panel.innerHTML = `<div style="text-align:center;padding:30px;color:#c85a50;font-size:13px">
@@ -1314,66 +1308,20 @@ async function loadMetrics(silent = false) {
     if (btn) btn.disabled = false;
   }
 
-  // Kick off the poller after the very first load
-  if (!_metricsPoller && !document.hidden) {
-    _startMetricsPoller();
-    _resetIdleTimer();
-  }
 }
 
 let _metricsPositions = [];  // live positions for calculator dropdown
 let _currentMetricsSlotId = null;
 let _currentMetricsRole   = "master";
 
-// ─────────────────────────────────────────────────────────────────
-// METRICS AUTO-POLL (every 60s while user is active + tab visible)
-// ─────────────────────────────────────────────────────────────────
-const METRICS_POLL_MS   = 60_000;   // 1 minute
-const METRICS_IDLE_MS   = 600_000;  // 10 minutes idle → pause
-
-let _metricsPoller   = null;
-let _metricsIdleTid  = null;
-let _metricsUserIdle = false;
-
-function _startMetricsPoller() {
-  if (_metricsPoller) return;  // already running
-  _metricsPoller = setInterval(() => {
-    if (!document.hidden && !_metricsUserIdle) loadMetrics(true);
-  }, METRICS_POLL_MS);
+// Deploy-transition poller — runs after deploy until real data arrives, then stops.
+let _deployPoller = null;
+function _stopDeployPoller() { clearInterval(_deployPoller); _deployPoller = null; }
+function _startDeployPoller() {
+  _stopDeployPoller();
+  _deployPoller = setInterval(() => loadMetrics(true), 5_000);
 }
 
-function _stopMetricsPoller() {
-  clearInterval(_metricsPoller);
-  _metricsPoller = null;
-}
-
-function _resetIdleTimer() {
-  if (_metricsUserIdle) {
-    // User came back — resume immediately
-    _metricsUserIdle = false;
-    if (!document.hidden) loadMetrics(true);
-    _startMetricsPoller();
-  }
-  clearTimeout(_metricsIdleTid);
-  _metricsIdleTid = setTimeout(() => { _metricsUserIdle = true; }, METRICS_IDLE_MS);
-}
-
-// Pause/resume on tab visibility
-document.addEventListener("visibilitychange", () => {
-  if (document.hidden) {
-    _stopMetricsPoller();
-  } else {
-    _metricsUserIdle = false;
-    loadMetrics(true);       // immediate refresh on return
-    _startMetricsPoller();
-    _resetIdleTimer();
-  }
-});
-
-// Track user activity
-["mousemove","keydown","click","scroll","touchstart"].forEach(ev =>
-  document.addEventListener(ev, _resetIdleTimer, { passive: true })
-);
 
 function renderMetricsHTML(m) {
   const fmt  = (n) => n != null
