@@ -1680,8 +1680,8 @@ function scCalc() {
         <span>M.spread ${scMoney(base.masterSpreadCost)} + M.comm ${scMoney(base.masterCommCost)}</span>
         <span>S.spread ${scMoney(base.slaveSpreadCost)}  + S.comm ${scMoney(base.slaveCommCost)}</span>
       </div>
-      <div class="sc-row"><span class="sc-row-lbl">Monthly net</span><span class="sc-row-val" style="color:${userGross>=0?'#3a7d44':'#9a4a45'}">${userGross>=0?'+':''}${scMoney(userGross)}${pp(userGross)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Yearly net</span><span class="sc-row-val" style="color:${(userGross*12-cycleCost)>=0?'#3a7d44':'#9a4a45'}">${(userGross*12-cycleCost)>=0?'+':''}${scMoney(userGross*12-cycleCost)}${pp(userGross*12-cycleCost)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Monthly net</span><span class="sc-row-val" style="color:${base.monthlySwap>=0?'#3a7d44':'#9a4a45'}">${base.monthlySwap>=0?'+':''}${scMoney(base.monthlySwap)}${pp(base.monthlySwap)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Yearly net</span><span class="sc-row-val" style="color:${(base.monthlySwap*12-cycleCost)>=0?'#3a7d44':'#9a4a45'}">${(base.monthlySwap*12-cycleCost)>=0?'+':''}${scMoney(base.monthlySwap*12-cycleCost)}${pp(base.monthlySwap*12-cycleCost)}</span></div>
       <div class="sc-row" style="margin-top:5px;padding-top:8px;border-top:2px solid var(--line)">
         <span class="sc-row-lbl" style="font-weight:700">Final balance</span>
         <span class="sc-row-val" style="font-size:15px;color:${c}">${scMoney(nrFinal)}${pp(nrFinal-bal0)}</span>
@@ -1693,15 +1693,15 @@ function scCalc() {
 
   function buildNRRows(nrBals) {
     return nrBals.map((bal, idx) => {
-      const m    = idx + 1;
+      const m     = idx + 1;
       const costs = m === mos ? cycleCost : 0;
-      const net   = userGross - costs;
+      const net   = base.monthlySwap - costs;
       const roiM  = (net / bal0) * 100;
       const roiC  = ((bal-bal0)/bal0)*100;
       const ann   = roiC * (12/m);
       return `<tr>
         <td style="font-weight:700">M${m}</td><td>${lots.toFixed(2)}</td>
-        <td style="color:#3a7d44">+${scMoney(userGross)}</td>
+        <td style="color:#3a7d44">+${scMoney(base.monthlySwap)}</td>
         <td style="color:#9a4a45">${costs>0?'-'+scMoney(costs):'—'}</td>
         <td style="${net>=0?'color:#3a7d44':'color:#9a4a45'}">${net>=0?'+':''}${scMoney(net)}</td>
         <td style="font-weight:700">${scMoney(bal)}</td>
@@ -1752,6 +1752,10 @@ function scCalc() {
           <div class="sc-stat-val" style="color:#3a7d44">${scMoney(userGross * 12)}</div>
           <div class="sc-stat-lbl">Your Yearly</div>
         </div>
+        <div class="sc-stat">
+          <div class="sc-stat-val" style="color:#3a7d44">${scMoney(bal0 + (headline - bal0) * (userPct/100))}</div>
+          <div class="sc-stat-lbl">Your Final Balance</div>
+        </div>
       </div>
       <div class="calc-card" style="margin-bottom:14px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
@@ -1777,8 +1781,8 @@ function scCalc() {
         </div>
         <div class="swap-table-wrap" style="margin-top:0;max-height:360px;overflow-y:auto">
           <table class="swap-table">
-            <thead><tr><th>Month</th><th>Lots</th><th>Your Gross</th><th>Costs</th>
-              <th>Your Net</th><th>Balance</th><th>ROI/mo</th><th>ROI cum.</th><th>Ann%</th></tr></thead>
+            <thead><tr><th>Month</th><th>Lots</th><th>Gross</th><th>Costs</th>
+              <th>Net</th><th>Balance</th><th>ROI/mo</th><th>ROI cum.</th><th>Ann%</th></tr></thead>
             <tbody id="scDetailBody">${nrRows}</tbody>
           </table>
         </div>
@@ -1787,9 +1791,9 @@ function scCalc() {
   }
 
   if (!comp) {
-    const nrFinal = bal0 + userGross * mos - cycleCost;
-    const nrBals  = Array.from({length:mos},(_,i)=>{let b=bal0+(i+1)*userGross;if(i+1===mos)b-=cycleCost;return b;});
-    const mrNet   = userGross - monthlyCycleCost;
+    const nrFinal = bal0 + base.monthlySwap * mos - cycleCost;
+    const nrBals  = Array.from({length:mos},(_,i)=>{let b=bal0+(i+1)*base.monthlySwap;if(i+1===mos)b-=cycleCost;return b;});
+    const mrNet   = base.monthlySwap - monthlyCycleCost;
     const mrFinal = bal0 + mrNet * mos;
     const mrBals  = Array.from({length:mos},(_,i)=>bal0+(i+1)*mrNet);
     const delta   = mrFinal - nrFinal;
@@ -1797,7 +1801,6 @@ function scCalc() {
     const roiT    = (prof/bal0)*100;
     const roiA    = roiT*(12/mos);
     const mrC     = (mrFinal-bal0)>=0?'#3a7d44':'#9a4a45';
-    const mrUserDaily = base.dailySwap * (userPct/100);
     const m2Html  = `<div class="sc-model">
       <div class="sc-model-title">Static Model <span class="sc-model-badge">${reinvestBadge}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Direction</span><span class="sc-row-val"
@@ -1824,7 +1827,7 @@ function scCalc() {
     const mrRows = Array.from({length:mos},(_,i)=>{
       const bal=mrBals[i],roiM=(mrNet/bal0)*100,roiC=((bal-bal0)/bal0)*100,ann=roiC*(12/(i+1));
       return `<tr><td style="font-weight:700">M${i+1}</td><td>${lots.toFixed(2)}</td>
-        <td style="color:#3a7d44">+${scMoney(userGross)}</td><td style="color:#9a4a45">-${scMoney(monthlyCycleCost)}</td>
+        <td style="color:#3a7d44">+${scMoney(base.monthlySwap)}</td><td style="color:#9a4a45">-${scMoney(monthlyCycleCost)}</td>
         <td style="${mrNet>=0?'color:#3a7d44':'color:#9a4a45'}">${mrNet>=0?'+':''}${scMoney(mrNet)}</td>
         <td style="font-weight:700">${scMoney(bal)}</td>
         <td style="color:#3d6b9e">${scPct(roiM)}</td><td style="color:#3a7d44">${scPct(roiC)}</td>
@@ -1837,8 +1840,8 @@ function scCalc() {
       "No Reinvest",reinvestLbl,nrBals,mrBals,reinvestLbl,buildNRRows(nrBals),mrRows);
 
   } else {
-    const nrFinal = bal0 + userGross * mos - cycleCost;
-    const nrBals  = Array.from({length:mos},(_,i)=>{let b=bal0+(i+1)*userGross;if(i+1===mos)b-=cycleCost;return b;});
+    const nrFinal = bal0 + base.monthlySwap * mos - cycleCost;
+    const nrBals  = Array.from({length:mos},(_,i)=>{let b=bal0+(i+1)*base.monthlySwap;if(i+1===mos)b-=cycleCost;return b;});
 
     // ── Compound loop — mirrors reference swap-calculator.html logic exactly ──
     const mpl = scData.contractSize / lev;   // margin per lot (fixed)
@@ -1857,11 +1860,10 @@ function scCalc() {
         capped = true;
       }
 
-      // 2. Monthly P&L with current lots
+      // 2. Monthly P&L with current lots (full gross — no platform share deduction)
       const r        = scCalcSingle(cpLots, lev);
-      const ug       = r.monthlySwap * (userPct / 100);
       const mcc      = r.cycleCost * cyclesPerMonth;
-      const net      = ug - mcc;
+      const net      = r.monthlySwap - mcc;
 
       // 3. Update balance
       const balStart = cpBal;
@@ -1886,7 +1888,7 @@ function scCalc() {
     }
 
     const cpFinal    = cpRows.length ? cpRows[cpRows.length - 1].bal : bal0;
-    const cpM1       = cpRows[0] || {lots, gross: base.monthlySwap, costs: monthlyCycleCost, net: userGross - monthlyCycleCost, roiM: 0};
+    const cpM1       = cpRows[0] || {lots, gross: base.monthlySwap, costs: monthlyCycleCost, net: base.monthlySwap - monthlyCycleCost, roiM: 0};
     const cpDailyAvg = cpRows.length ? (cpFinal - bal0) / (cpRows.length * SC_DAYS) : 0;
     const delta      = cpFinal - nrFinal;
     const prof       = cpFinal - bal0;
