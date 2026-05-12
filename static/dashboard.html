@@ -459,6 +459,9 @@
                 font-size:14px;font-weight:700;cursor:pointer">
                 Fetch &amp; Calculate
               </button>
+              <div id="scFetchError" style="display:none;margin-top:8px;padding:8px 10px;
+                background:#fef3cd;border:1px solid #e8c84a;border-radius:8px;
+                font-size:11.5px;color:#7a5a20;line-height:1.5"></div>
             </div>
 
             <!-- Market data panel — shown after fetch -->
@@ -1499,6 +1502,8 @@ async function scFetch() {
   if (!slotId) { alert("Select a slot first."); return; }
   if (!symbol) { alert("Enter a symbol first."); return; }
   if (btn) { btn.textContent = "Fetching…"; btn.disabled = true; }
+  const errBanner = document.getElementById("scFetchError");
+  if (errBanner) errBanner.style.display = "none";
   try {
     const res = await fetch(
       `/dashboard/my-slots/${slotId}/calc-data?symbol=${encodeURIComponent(symbol)}`,
@@ -1519,6 +1524,16 @@ async function scFetch() {
     scData.slaveSpread  = parseFloat(d.slave?.spread_pips)         || 0;
     scData.slaveComm    = parseFloat(d.slave?.commission_per_lot)  || 0;
 
+    // Warn if slave data is missing (symbol not in market watch on slave broker)
+    const slaveOk = d.slave?.spread_pips != null;
+    if (!slaveOk && errBanner) {
+      const slSym = d.slave?.symbol || d.slave_symbol || symbol;
+      errBanner.textContent = "⚠️ Slave account could not find \"" + slSym + "\"" +
+        (slSym !== symbol ? " (mapped from \"" + symbol + "\")" : "") +
+        ". Slave spread/commission set to 0 — add the symbol to market watch or update the symbol map.";
+      errBanner.style.display = "";
+    }
+
     if (d.master_balance  != null) document.getElementById("scBalance").value  = Math.round(d.master_balance);
     if (d.master_leverage != null) {
       const lev = parseInt(d.master_leverage);
@@ -1533,7 +1548,14 @@ async function scFetch() {
     scRenderDataPanel(d);
     scCalc();
   } catch(e) {
-    alert("Error: " + e.message);
+    // Show inline error — never block the page with alert()
+    if (errBanner) {
+      errBanner.textContent = "⚠️ " + (e.message || "Fetch failed") +
+        (scData.symbol ? " — showing last fetched data." : "");
+      errBanner.style.display = "";
+    }
+    // If we already have market data from a previous successful fetch, still run the calculator
+    if (scData.symbol) scCalc();
   } finally {
     if (btn) { btn.textContent = "Fetch & Calculate"; btn.disabled = false; }
   }
@@ -1658,6 +1680,8 @@ function scCalc() {
         <span>M.spread ${scMoney(base.masterSpreadCost)} + M.comm ${scMoney(base.masterCommCost)}</span>
         <span>S.spread ${scMoney(base.slaveSpreadCost)}  + S.comm ${scMoney(base.slaveCommCost)}</span>
       </div>
+      <div class="sc-row"><span class="sc-row-lbl">Monthly net</span><span class="sc-row-val" style="color:${userGross>=0?'#3a7d44':'#9a4a45'}">${userGross>=0?'+':''}${scMoney(userGross)}${pp(userGross)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Yearly net</span><span class="sc-row-val" style="color:${(userGross*12-cycleCost)>=0?'#3a7d44':'#9a4a45'}">${(userGross*12-cycleCost)>=0?'+':''}${scMoney(userGross*12-cycleCost)}${pp(userGross*12-cycleCost)}</span></div>
       <div class="sc-row" style="margin-top:5px;padding-top:8px;border-top:2px solid var(--line)">
         <span class="sc-row-lbl" style="font-weight:700">Final balance</span>
         <span class="sc-row-val" style="font-size:15px;color:${c}">${scMoney(nrFinal)}${pp(nrFinal-bal0)}</span>
@@ -1776,13 +1800,20 @@ function scCalc() {
     const mrUserDaily = base.dailySwap * (userPct/100);
     const m2Html  = `<div class="sc-model">
       <div class="sc-model-title">Static Model <span class="sc-model-badge">${reinvestBadge}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Direction</span><span class="sc-row-val"
+        style="color:${scData.direction==='LONG'?'#2e7d32':'#b71c1c'}">${scData.direction}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Lots</span><span class="sc-row-val">${lots.toFixed(2)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Daily gross</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(base.dailySwap)}${pp(base.dailySwap)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Weekly Gross</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(base.dailySwap * 7)}${pp(base.dailySwap * 7)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Monthly gross</span><span class="sc-row-val">${scMoney(base.monthlySwap)}${pp(base.monthlySwap)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Yearly Gross</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(base.monthlySwap * 12)}${pp(base.monthlySwap * 12)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Cost / month (${cyclesPerMonth.toFixed(2)}× cycle)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(monthlyCycleCost)}${pp(monthlyCycleCost)}</span></div>
+      <div class="sc-row" style="font-size:10px;color:var(--muted);flex-direction:column;gap:1px;line-height:1.6">
+        <span>M.spread ${scMoney(base.masterSpreadCost)} + M.comm ${scMoney(base.masterCommCost)}</span>
+        <span>S.spread ${scMoney(base.slaveSpreadCost)}  + S.comm ${scMoney(base.slaveCommCost)}</span>
+      </div>
       <div class="sc-row"><span class="sc-row-lbl">Monthly net</span><span class="sc-row-val" style="color:${mrNet>=0?'#3a7d44':'#9a4a45'}">${mrNet>=0?'+':''}${scMoney(mrNet)}${pp(mrNet)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Yearly net</span><span class="sc-row-val" style="color:${(mrNet*12)>=0?'#3a7d44':'#9a4a45'}">${(mrNet*12)>=0?'+':''}${scMoney(mrNet*12)}${pp(mrNet*12)}</span></div>
       <div class="sc-row" style="margin-top:5px;padding-top:8px;border-top:2px solid var(--line)">
         <span class="sc-row-lbl" style="font-weight:700">Final balance</span>
         <span class="sc-row-val" style="font-size:15px;color:${mrC}">${scMoney(mrFinal)}${pp(mrFinal-bal0)}</span>
@@ -1865,14 +1896,20 @@ function scCalc() {
     const cpC        = (cpFinal - bal0) >= 0 ? '#3a7d44' : '#9a4a45';
     const m2Html=`<div class="sc-model">
       <div class="sc-model-title">Compound Model <span class="sc-model-badge">${reinvestBadge}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Direction</span><span class="sc-row-val"
+        style="color:${scData.direction==='LONG'?'#2e7d32':'#b71c1c'}">${scData.direction}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Lots (m1)${capped?' <span style="color:#9a4a45;font-size:10px">[CAP]</span>':''}</span><span class="sc-row-val">${cpM1.lots.toFixed(2)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Daily avg (period)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpDailyAvg)}${pp(cpDailyAvg)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Weekly Gross (m1)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpM1.gross / SC_DAYS * 7)}${pp(cpM1.gross / SC_DAYS * 7)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Monthly gross (m1)</span><span class="sc-row-val">${scMoney(cpM1.gross)}${pp(cpM1.gross)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Yearly Gross (m1)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpM1.gross * 12)}${pp(cpM1.gross * 12)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Cost / month (m1)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(cpM1.costs)}${pp(cpM1.costs)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Net (m1)</span><span class="sc-row-val" style="color:${cpM1.net>=0?'#3a7d44':'#9a4a45'}">${cpM1.net>=0?'+':''}${scMoney(cpM1.net)}${pp(cpM1.net)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Total profit</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpFinal-bal0)}${pp(cpFinal-bal0)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Cost / month (m1, ${cyclesPerMonth.toFixed(2)}× cycle)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(cpM1.costs)}${pp(cpM1.costs)}</span></div>
+      <div class="sc-row" style="font-size:10px;color:var(--muted);flex-direction:column;gap:1px;line-height:1.6">
+        <span>M.spread ${scMoney(base.masterSpreadCost)} + M.comm ${scMoney(base.masterCommCost)}</span>
+        <span>S.spread ${scMoney(base.slaveSpreadCost)}  + S.comm ${scMoney(base.slaveCommCost)}</span>
+      </div>
+      <div class="sc-row"><span class="sc-row-lbl">Monthly net</span><span class="sc-row-val" style="color:${cpM1.net>=0?'#3a7d44':'#9a4a45'}">${cpM1.net>=0?'+':''}${scMoney(cpM1.net)}${pp(cpM1.net)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Yearly net (m1)</span><span class="sc-row-val" style="color:${(cpM1.net*12)>=0?'#3a7d44':'#9a4a45'}">${(cpM1.net*12)>=0?'+':''}${scMoney(cpM1.net*12)}${pp(cpM1.net*12)}</span></div>
       <div class="sc-row" style="margin-top:5px;padding-top:8px;border-top:2px solid var(--line)">
         <span class="sc-row-lbl" style="font-weight:700">Final balance</span>
         <span class="sc-row-val" style="font-size:15px;color:${cpC}">${scMoney(cpFinal)}${pp(cpFinal-bal0)}</span>

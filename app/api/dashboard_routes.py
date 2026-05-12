@@ -284,7 +284,7 @@ async def get_slot_calc_data(
     db: Session = Depends(get_db),
 ):
     """Return all market data needed for the swap calculator (swap, spread, commission, quote rate)."""
-    from app.model import UserSlot, TradingAccount
+    from app.model import UserSlot, TradingAccount, SlotSymbolMap
 
     payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
     user_id = payload.get("user_id")
@@ -305,6 +305,12 @@ async def get_slot_calc_data(
 
     symbol = symbol.strip()
 
+    # Resolve slave symbol via the slot's symbol map (e.g. XAUUSD → XAUUSD.ra)
+    map_entry = db.query(SlotSymbolMap).filter_by(
+        slot_id=slot_id, master_symbol=symbol
+    ).first()
+    slave_symbol = map_entry.slave_symbol if map_entry else symbol
+
     # Master: spec + price + account info (parallel)
     master_spec, master_price, master_info = await asyncio.gather(
         account_manager.get_symbol_spec(master.metaapi_account_id, symbol),
@@ -315,13 +321,13 @@ async def get_slot_calc_data(
     if master_spec.get("error"):
         raise HTTPException(400, f"Symbol data error: {master_spec['error']}")
 
-    # Slave: price + spec (if deployed)
+    # Slave: price + spec using mapped symbol (if deployed)
     slave_price: dict = {}
     slave_spec: dict = {}
     if slave and slave.metaapi_account_id and (slave.state or "").upper() == "DEPLOYED":
         slave_price, slave_spec = await asyncio.gather(
-            account_manager.get_symbol_price(slave.metaapi_account_id, symbol),
-            account_manager.get_symbol_spec(slave.metaapi_account_id, symbol),
+            account_manager.get_symbol_price(slave.metaapi_account_id, slave_symbol),
+            account_manager.get_symbol_spec(slave.metaapi_account_id, slave_symbol),
         )
 
     # Auto-detect positive swap direction
@@ -361,6 +367,7 @@ async def get_slot_calc_data(
 
     return {
         "symbol":              symbol,
+        "slave_symbol":        slave_symbol,
         "direction":           direction,
         "swap_long":           swap_long,
         "swap_short":          swap_short,
@@ -378,6 +385,7 @@ async def get_slot_calc_data(
             "ask":                master_price.get("ask"),
         },
         "slave": {
+            "symbol":             slave_symbol,
             "spread_pips":        slave_spread,
             "commission_per_lot": slave_spec.get("commission_per_lot") if slave_spec else None,
             "bid":                slave_price.get("bid"),
