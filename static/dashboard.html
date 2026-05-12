@@ -913,7 +913,6 @@ async function deployAccount(id) {
     if (!res.ok || !data.success) { alert("Deploy failed: " + (data.detail||data.error||"?")); unspinBtn(btn,"Deploy"); return; }
     await loadSlots();
     loadMetrics(true);
-    _startDeployPoller();
   } catch(e) { alert("Deploy error: "+e.message); unspinBtn(btn,"Deploy"); }
 }
 
@@ -1285,8 +1284,6 @@ async function loadMetrics(silent = false) {
           <div style="font-size:12.5px;color:var(--muted);max-width:320px;margin:0 auto;line-height:1.6">${msg.sub}</div>
         </div>`;
       setText("metricsLastUpdate", "Checked " + new Date().toLocaleTimeString());
-      // Keep polling only while deploying; stop on any other terminal state
-      if (accountState !== "deploying") _stopDeployPoller();
       return;
     }
 
@@ -1296,8 +1293,6 @@ async function loadMetrics(silent = false) {
           No data returned. Ensure the account is deployed and connected.</div>`;
       return;
     }
-    // Real metrics arrived — stop the deploy poller
-    _stopDeployPoller();
     panel.innerHTML = renderMetricsHTML(m);
     setText("metricsLastUpdate", "Updated " + new Date().toLocaleTimeString());
   } catch(e) {
@@ -1314,13 +1309,6 @@ let _metricsPositions = [];  // live positions for calculator dropdown
 let _currentMetricsSlotId = null;
 let _currentMetricsRole   = "master";
 
-// Deploy-transition poller — runs after deploy until real data arrives, then stops.
-let _deployPoller = null;
-function _stopDeployPoller() { clearInterval(_deployPoller); _deployPoller = null; }
-function _startDeployPoller() {
-  _stopDeployPoller();
-  _deployPoller = setInterval(() => loadMetrics(true), 5_000);
-}
 
 
 function renderMetricsHTML(m) {
