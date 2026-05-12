@@ -1475,8 +1475,8 @@ const SC_DAYS = 38;   // swap-accruing trading days per month
 // Market data populated by scFetch()
 let scData = {
   symbol: "", direction: "LONG",
-  swapPerLot: 0, masterSpread: 0, masterComm: 0,
-  slaveSpread: 0, slaveComm: 0,
+  swapPerLot: 0, masterSpread: 0, masterComm: 5,
+  slaveSpread: 0, slaveComm: 5,
   contractSize: 100000, digits: 5, quoteRate: 1.0, rollover3Days: null,
 };
 
@@ -1520,9 +1520,9 @@ async function scFetch() {
     scData.quoteRate    = parseFloat(d.quote_rate)    || 1.0;
     scData.rollover3Days = d.swap_rollover3_days || null;
     scData.masterSpread = parseFloat(d.master?.spread_pips)        || 0;
-    scData.masterComm   = parseFloat(d.master?.commission_per_lot) || 0;
+    scData.masterComm   = d.master?.commission_per_lot != null ? parseFloat(d.master.commission_per_lot) : 5;
     scData.slaveSpread  = parseFloat(d.slave?.spread_pips)         || 0;
-    scData.slaveComm    = parseFloat(d.slave?.commission_per_lot)  || 0;
+    scData.slaveComm    = d.slave?.commission_per_lot  != null ? parseFloat(d.slave.commission_per_lot)  : 5;
 
     // Warn if slave data is missing (symbol not in market watch on slave broker)
     const slaveOk = d.slave?.spread_pips != null;
@@ -1597,12 +1597,12 @@ function scRenderDataPanel(d) {
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
       ${inp(`Swap pts/day (${d.direction})`, "sc-swapPerLot",   scData.swapPerLot)}
       ${inp("Spread pips",                   "sc-masterSpread", d.master?.spread_pips ?? 0)}
-      ${inp("Comm $/lot",                    "sc-masterComm",   d.master?.commission_per_lot ?? 0, masterCommNote)}
+      ${inp("Comm $/lot",                    "sc-masterComm",   d.master?.commission_per_lot ?? 5, masterCommNote)}
     </div>
     <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:10px 0 8px">Slave Account</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 10px">
       ${inp("Spread pips", "sc-slaveSpread", d.slave?.spread_pips         ?? 0)}
-      ${inp("Comm $/lot",  "sc-slaveComm",  d.slave?.commission_per_lot  ?? 0, slaveCommNote)}
+      ${inp("Comm $/lot",  "sc-slaveComm",  d.slave?.commission_per_lot  ?? 5, slaveCommNote)}
     </div>
     <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:10px 0 8px">Contract Details</div>
     <div style="background:#f7f9fb;border-radius:8px;padding:8px 10px">
