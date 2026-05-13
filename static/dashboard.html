@@ -1534,7 +1534,7 @@ async function scFetch() {
       errBanner.style.display = "";
     }
 
-    if (d.master_balance  != null) document.getElementById("scBalance").value  = Math.round(d.master_balance);
+    if (d.master_balance  != null && !scData.symbol) document.getElementById("scBalance").value = Math.round(d.master_balance);
     if (d.master_leverage != null) {
       const lev = parseInt(d.master_leverage);
       const sel = document.getElementById("scLeverage");
@@ -1609,7 +1609,7 @@ function scRenderDataPanel(d) {
       ${row("Contract size",  (d.contract_size||100000).toLocaleString())}
       ${row("Digits",         d.digits ?? 5)}
       ${row("Quote→USD rate", (parseFloat(d.quote_rate)||1).toFixed(6))}
-      ${row("Rollover 3×",    d.swap_rollover3_days || "—")}
+      ${row("Rollover 3×",    "Wednesday")}
     </div>`;
 
   panel.style.display = "";
@@ -1894,6 +1894,10 @@ function scCalc() {
     const cpFinal    = cpRows.length ? cpRows[cpRows.length - 1].bal : bal0;
     const cpM1       = cpRows[0] || {lots, gross: base.monthlySwap, costs: monthlyCycleCost, net: base.monthlySwap - monthlyCycleCost, roiM: 0};
     const cpDailyAvg = cpRows.length ? (cpFinal - bal0) / (cpRows.length * SC_DAYS) : 0;
+    const cpN        = cpRows.length || 1;
+    const cpAvgGross = cpRows.length ? cpRows.reduce((s,r)=>s+r.gross,0)/cpN : base.monthlySwap;
+    const cpAvgCosts = cpRows.length ? cpRows.reduce((s,r)=>s+r.costs,0)/cpN : monthlyCycleCost;
+    const cpAvgNet   = cpRows.length ? cpRows.reduce((s,r)=>s+r.net,  0)/cpN : (base.monthlySwap - monthlyCycleCost);
     const delta      = cpFinal - srFinal;
     const prof       = cpFinal - bal0;
     const roiT       = (prof / bal0) * 100;
@@ -1906,16 +1910,16 @@ function scCalc() {
         style="color:${scData.direction==='LONG'?'#2e7d32':'#b71c1c'}">${scData.direction}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Lots (m1)${capped?' <span style="color:#9a4a45;font-size:10px">[CAP]</span>':''}</span><span class="sc-row-val">${cpM1.lots.toFixed(2)}</span></div>
       <div class="sc-row"><span class="sc-row-lbl">Daily avg (period)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpDailyAvg)}${pp(cpDailyAvg)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Weekly Gross (m1)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpM1.gross / SC_DAYS * 7)}${pp(cpM1.gross / SC_DAYS * 7)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Monthly gross (m1)</span><span class="sc-row-val">${scMoney(cpM1.gross)}${pp(cpM1.gross)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Yearly Gross (m1)</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpM1.gross * 12)}${pp(cpM1.gross * 12)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Cost / month (m1, ${cyclesPerMonth.toFixed(2)}× cycle)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(cpM1.costs)}${pp(cpM1.costs)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Weekly gross avg</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpAvgGross / SC_DAYS * 7)}${pp(cpAvgGross / SC_DAYS * 7)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Monthly gross avg</span><span class="sc-row-val">${scMoney(cpAvgGross)}${pp(cpAvgGross)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Yearly gross avg</span><span class="sc-row-val" style="color:#3a7d44">${scMoney(cpAvgGross * 12)}${pp(cpAvgGross * 12)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Cost / month avg (${cyclesPerMonth.toFixed(2)}× cycle)</span><span class="sc-row-val" style="color:#7a5a20">-${scMoney(cpAvgCosts)}${pp(cpAvgCosts)}</span></div>
       <div class="sc-row" style="font-size:10px;color:var(--muted);flex-direction:column;gap:1px;line-height:1.6">
         <span>M.spread ${scMoney(base.masterSpreadCost)} + M.comm ${scMoney(base.masterCommCost)}</span>
         <span>S.spread ${scMoney(base.slaveSpreadCost)}  + S.comm ${scMoney(base.slaveCommCost)}</span>
       </div>
-      <div class="sc-row"><span class="sc-row-lbl">Monthly net</span><span class="sc-row-val" style="color:${cpM1.net>=0?'#3a7d44':'#9a4a45'}">${cpM1.net>=0?'+':''}${scMoney(cpM1.net)}${pp(cpM1.net)}</span></div>
-      <div class="sc-row"><span class="sc-row-lbl">Yearly net (m1)</span><span class="sc-row-val" style="color:${(cpM1.net*12)>=0?'#3a7d44':'#9a4a45'}">${(cpM1.net*12)>=0?'+':''}${scMoney(cpM1.net*12)}${pp(cpM1.net*12)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Monthly net avg</span><span class="sc-row-val" style="color:${cpAvgNet>=0?'#3a7d44':'#9a4a45'}">${cpAvgNet>=0?'+':''}${scMoney(cpAvgNet)}${pp(cpAvgNet)}</span></div>
+      <div class="sc-row"><span class="sc-row-lbl">Yearly net avg</span><span class="sc-row-val" style="color:${(cpAvgNet*12)>=0?'#3a7d44':'#9a4a45'}">${(cpAvgNet*12)>=0?'+':''}${scMoney(cpAvgNet*12)}${pp(cpAvgNet*12)}</span></div>
       <div class="sc-row" style="margin-top:5px;padding-top:8px;border-top:2px solid var(--line)">
         <span class="sc-row-lbl" style="font-weight:700">Final balance</span>
         <span class="sc-row-val" style="font-size:15px;color:${cpC}">${scMoney(cpFinal)}${pp(cpFinal-bal0)}</span>
