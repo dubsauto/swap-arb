@@ -13,9 +13,13 @@ import time
 
 GRACE_PERIOD = 60
 KEEPALIVE_INTERVAL = 45
-SYNC_TIMEOUT = 30      # per attempt; 2 attempts = 60s max before reconnect
-                       # (was 60 × 3 = 180s — caused 15-min outage)
-MAX_SYNC_ATTEMPTS = 2  # 2 × 30s = 60s before "dead" (was 3 × 60s = 180s)
+# If a synced listener receives NO events for this long, the MetaAPI subscription
+# manager has likely dropped its subscriptions silently (no on_disconnected fires).
+# Force a reconnect to restore event delivery.
+EVENT_SILENCE_THRESHOLD = 120
+SYNC_TIMEOUT = 15      # per attempt; 2 attempts = 30s max before reconnect
+MAX_SYNC_ATTEMPTS = 2  # 2 × 15s = 30s before reconnect (sync failures are MetaAPI-side,
+                       # not account failures — reconnect_attempts is reset on sync fail)
 DEPLOY_WAIT = 8
 CONNECT_TIMEOUT = 15   # connection.connect() hard deadline
 CLOSE_TIMEOUT = 10     # connection.close() hard deadline
@@ -269,6 +273,21 @@ class ListenerManager:
                         if status is not None and not status.get("connected", False):
                             print(f"💀 Keepalive detected dead connection → {account_id}")
                             await self.mark_disconnected(account_id)
+                            continue
+
+                        # Event-silence check: health_monitor says "connected" but
+                        # MetaAPI subscription manager may have dropped subscriptions
+                        # internally without firing on_disconnected. Detect this by
+                        # checking how long it has been since any callback fired.
+                        listener = self._listeners.get(account_id)
+                        if listener and listener._last_event_at > 0:
+                            silence = now - listener._last_event_at
+                            if silence > EVENT_SILENCE_THRESHOLD:
+                                print(
+                                    f"🔇 Event silence {silence:.0f}s → {account_id} "
+                                    f"(subscription manager likely dead), forcing reconnect"
+                                )
+                                await self.mark_disconnected(account_id)
 
                     except Exception as e:
                         print(f"⚠️ Keepalive check error for {account_id}: {e}")
@@ -618,6 +637,18 @@ class ListenerManager:
                 if status is not None and not status.get("connected", False):
                     print(f"💀 Dead connection detected → {account_id}")
                     await self.mark_disconnected(account_id)
+                    continue
+
+                # Event-silence check (same logic as keepalive, catches it faster)
+                listener = self._listeners.get(account_id)
+                if listener and listener._last_event_at > 0:
+                    silence = now - listener._last_event_at
+                    if silence > EVENT_SILENCE_THRESHOLD:
+                        print(
+                            f"🔇 Event silence {silence:.0f}s → {account_id} "
+                            f"(subscription manager likely dead), forcing reconnect"
+                        )
+                        await self.mark_disconnected(account_id)
 
             except Exception:
                 pass
@@ -731,6 +762,11 @@ class ListenerManager:
                     self._set_listener_active(account_id, True)
                     self._reconnect_attempts.pop(account_id, None)
                     self._disconnect_times.pop(account_id, None)
+                    # Seed the event-silence clock so the keepalive silence check
+                    # activates even if MetaAPI never fires a callback after sync.
+                    listener = self._listeners.get(account_id)
+                    if listener and listener._last_event_at == 0.0:
+                        listener._last_event_at = time.monotonic()
                     return
 
                 except asyncio.CancelledError:
@@ -749,12 +785,14 @@ class ListenerManager:
 
                 await asyncio.sleep(5)
 
-            # All sync attempts exhausted — treat as dead and trigger reconnect
+            # All sync attempts exhausted — treat as dead and trigger reconnect.
+            # sync_failed=True resets the reconnect counter so these timeouts
+            # (MetaAPI server-side) don't push the account toward nuclear reset.
             print(
                 f"⚠️ Sync never completed after {MAX_SYNC_ATTEMPTS} attempts → "
                 f"{account_id}, triggering reconnect"
             )
-            await self.mark_disconnected(account_id)
+            await self.mark_disconnected(account_id, sync_failed=True)
 
         finally:
             # Always remove the done task from the dict so it doesn't
@@ -828,7 +866,7 @@ class ListenerManager:
     # =====================================
     # MARK DISCONNECTED
     # =====================================
-    async def mark_disconnected(self, account_id: str):
+    async def mark_disconnected(self, account_id: str, sync_failed: bool = False):
         self._record_disconnect(account_id)
 
         async with self._lock:
@@ -862,6 +900,12 @@ class ListenerManager:
         print(f"♻️ Marked for reconnection → {account_id}")
 
         if not self._global_outage:
+            if sync_failed:
+                # Sync timeouts are MetaAPI server-side (out-of-order packets,
+                # subscription manager overload) — not a dead account.  Reset
+                # the per-account reconnect counter so these failures never
+                # accumulate toward the nuclear-reset limit.
+                self._reconnect_attempts.pop(account_id, None)
             self._reconnect_queue.put_nowait(account_id)
 
 

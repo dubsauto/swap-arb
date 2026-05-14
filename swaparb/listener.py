@@ -1,6 +1,7 @@
 #swaparb/listener.py
 from swaparb.copy_engine import copy_engine
 from app.database import SessionLocal
+from app.model import CopyTradeLink
 from swaparb.models import (
     MetatraderPosition,
     MetatraderAccountInformation,
@@ -19,6 +20,7 @@ from typing import List, Optional
 
 from typing_extensions import TypedDict
 import asyncio
+import time
 
 class HealthStatus(TypedDict, total=False):
     """Server-side application health status."""
@@ -40,6 +42,13 @@ class MetaApiTradeListener(ABC):
         self.manager = manager
         self._disconnected = False
         self._position_cache = {}  # cache for current SL/TP of positions to detect modifies
+        # Monotonic timestamp of the last event received from MetaAPI.
+        # 0.0 means no event yet. Used by keepalive to detect silent dead subscriptions.
+        self._last_event_at: float = 0.0
+
+    def _touch(self):
+        """Record that a live event just arrived from MetaAPI."""
+        self._last_event_at = time.monotonic()
 
     def get_region(self, instance_index: str = None) -> str:
         """Returns region of instance index.
@@ -75,8 +84,7 @@ class MetaApiTradeListener(ABC):
         Returns:
             A coroutine which resolves when the asynchronous event is processed.
         """
-        # self._active = True
-        pass
+        self._touch()
 
     async def on_health_status(self, instance_index: str, status: HealthStatus):
         """Invoked when a server-side application health status is received from MetaApi.
@@ -88,7 +96,9 @@ class MetaApiTradeListener(ABC):
         Returns:
             A coroutine which resolves when the asynchronous event is processed.
         """
-        pass
+        # MetaAPI sends periodic health pings — use them as a heartbeat to detect
+        # dead subscription managers that stop events without firing on_disconnected.
+        self._touch()
 
     async def on_disconnected(self, instance_index: str):
         """Invoked when connection to MetaTrader terminal terminated.
@@ -153,20 +163,35 @@ class MetaApiTradeListener(ABC):
         Returns:
             A coroutine which resolves when the asynchronous event is processed.
         """
-        pass
+        self._touch()
 
     async def on_positions_replaced(self, instance_index: str, positions: List[MetatraderPosition]):
-        """Invoked when the positions are replaced as a result of initial terminal state synchronization. This method
-        will be invoked only if server thinks the data was updated, otherwise invocation can be skipped.
+        """Seed _known_positions from DB on reconnect so already-copied trades
+        are not re-fired as new through on_positions_updated."""
+        self._touch()
+        db = SessionLocal()
+        try:
+            rows = (
+                db.query(CopyTradeLink.master_ticket)
+                .filter(
+                    CopyTradeLink.master_account_id == self.account_id,
+                    CopyTradeLink.status == "open",
+                )
+                .distinct()
+                .all()
+            )
+            for (ticket,) in rows:
+                self._known_positions.add(str(ticket))
+        finally:
+            db.close()
 
-        Args:
-            instance_index: Index of an account instance connected.
-            positions: Updated array of positions.
-
-        Returns:
-            A coroutine which resolves when the asynchronous event is processed.
-        """
-        pass
+        # Populate SL/TP cache for all live positions (needed for modify detection)
+        for position in positions:
+            ticket = str(position["id"])
+            self._position_cache[ticket] = {
+                "sl": position.get("stopLoss"),
+                "tp": position.get("takeProfit"),
+            }
 
     async def on_positions_synchronized(self, instance_index: str, synchronization_id: str):
         """Invoked when position synchronization finished to indicate progress of an initial terminal state
@@ -179,6 +204,7 @@ class MetaApiTradeListener(ABC):
         pass
 
     async def on_positions_updated(self, instance_index, positions, removed_positions_ids):
+        self._touch()
         tasks = []
 
         try:
@@ -192,12 +218,31 @@ class MetaApiTradeListener(ABC):
                 # NEW TRADE
                 # =========================
                 if ticket not in self._known_positions:
-                    self._known_positions.add(ticket)
+                    # Before copying, check if this position was already copied in a
+                    # previous session.  on_positions_replaced seeds _known_positions
+                    # from DB, but MetaAPI sometimes sends a delta sync on reconnect
+                    # and skips positions_replaced entirely.  Without this guard the
+                    # engine would treat every live position as a brand-new trade on
+                    # reconnect, create duplicate copies, and corrupt close tracking.
+                    db = SessionLocal()
+                    try:
+                        already_copied = db.query(CopyTradeLink).filter(
+                            CopyTradeLink.master_account_id == self.account_id,
+                            CopyTradeLink.master_ticket == ticket,
+                            CopyTradeLink.status == "open",
+                        ).first()
+                    finally:
+                        db.close()
 
+                    self._known_positions.add(ticket)
                     self._position_cache[ticket] = {
                         "sl": current_sl,
-                        "tp": current_tp
+                        "tp": current_tp,
                     }
+
+                    if already_copied:
+                        # Already replicated — just register as known, no copy needed
+                        continue
 
                     tasks.append(
                         copy_engine.handle_new_trade(
@@ -225,10 +270,9 @@ class MetaApiTradeListener(ABC):
                             )
                         )
 
-                # update cache
                 self._position_cache[ticket] = {
                     "sl": current_sl,
-                    "tp": current_tp
+                    "tp": current_tp,
                 }
 
             # =========================
