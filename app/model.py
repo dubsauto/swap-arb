@@ -350,6 +350,24 @@ class SymbolMappingEntry(Base):
     )
 
 # =========================
+# TRACKED POSITIONS (safety-net replication monitor)
+# =========================
+class TrackedPosition(Base):
+    __tablename__ = "tracked_positions"
+
+    id                = Column(Integer, primary_key=True)
+    master_account_id = Column(Integer, ForeignKey("trading_accounts.id", ondelete="CASCADE"), nullable=False)
+    master_ticket     = Column(String(64), nullable=False)
+    first_seen_at     = Column(DateTime, nullable=False)
+    closed_by_tracker = Column(Boolean, default=False)
+    intervention_at   = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("master_account_id", "master_ticket", name="uniq_tracked_pos"),
+    )
+
+
+# =========================
 # ACTIVITY LOG
 # =========================
 class ActivityLog(Base):

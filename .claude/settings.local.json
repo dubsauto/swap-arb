@@ -4,7 +4,8 @@
       "Bash(dir /b /s \"C:\\\\Users\\\\Adaba\\\\Downloads\\\\swap-arb\")",
       "Bash(findstr /v \"env\\\\\\\\\")",
       "Bash(findstr \".py$\")",
-      "Bash(findstr /v \"__pycache__\")"
+      "Bash(findstr /v \"__pycache__\")",
+      "Bash(ls \"C:\\\\Users\\\\Adaba\\\\Downloads\\\\\" | grep -v swap-arb | head -20)"
     ]
   }
 }

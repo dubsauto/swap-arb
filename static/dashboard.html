@@ -310,10 +310,15 @@
 
     <div class="ui-content">
       <section class="ui-center">
-        <div class="mb-1">
-          <div class="ui-h1">Dashboard</div>
-          <div class="ui-sub">Your copy-trading slots</div>
+        <div class="mb-1" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+          <div class="ui-h1" style="margin:0">Dashboard</div>
+          <select class="ui-select" id="globalSlotSel" onchange="onGlobalSlotChange()"
+                  style="min-width:200px;height:42px;font-size:16px;font-weight:700;padding:0 12px"></select>
         </div>
+        <div class="ui-sub" style="margin-top:4px">Your copy-trading slots</div>
+      </section>
+
+      <section class="ui-center" id="slotCardsSection" style="margin-top:8px">
         <div class="ui-cardgrid" id="accountCards"></div>
       </section>
 
@@ -323,8 +328,9 @@
           <div class="ui-h2">Account Metrics</div>
           <div class="ui-sub">Live data from your MetaAPI-connected trading accounts</div>
         </div>
+        <!-- hidden slot selector — keeps loadMetrics() working; driven by globalSlotSel -->
+        <select id="metricsSlotSel" style="display:none"></select>
         <div class="metrics-selectors">
-          <select class="ui-select" id="metricsSlotSel" onchange="onMetricsSel()" style="min-width:170px"></select>
           <select class="ui-select" id="metricsRoleSel" onchange="onMetricsSel()" style="min-width:130px">
             <option value="master">Master</option>
             <option value="slave">Slave</option>
@@ -332,6 +338,17 @@
           <button class="btn-sm btn-deploy" id="metricsRefreshBtn"
                   onclick="loadMetrics()" style="height:34px;padding:0 14px">↻ Refresh</button>
           <span style="font-size:12px;color:var(--muted)" id="metricsLastUpdate"></span>
+          <div id="metricsTopStats" style="margin-left:auto;display:none;gap:20px;align-items:center">
+            <div style="text-align:right">
+              <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total Swap</div>
+              <div id="metricsTotalSwapVal" style="font-size:15px;font-weight:700">—</div>
+            </div>
+            <div style="width:1px;height:28px;background:var(--line)"></div>
+            <div style="text-align:right">
+              <div style="font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.5px">Total ROI</div>
+              <div id="metricsTotalROIVal" style="font-size:15px;font-weight:700">—</div>
+            </div>
+          </div>
         </div>
         <div id="metricsPanel">
           <div style="text-align:center;padding:36px;color:var(--muted);font-size:13px">
@@ -404,11 +421,8 @@
             <div class="calc-card" style="margin-bottom:14px">
               <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:14px">Parameters</div>
 
-              <label class="calc-label">Slot</label>
-              <select class="ui-select" id="scSlot" style="height:36px;margin-bottom:10px"
-                      onchange="scOnSlotChange()">
-                <option value="">— select a slot —</option>
-              </select>
+              <!-- hidden slot selector — driven by globalSlotSel -->
+              <select id="scSlot" style="display:none"></select>
 
               <label class="calc-label">Symbol</label>
               <input class="ui-input" type="text" id="scSymbol" placeholder="e.g. USDCHF"
@@ -504,6 +518,7 @@ if (!token) window.location.href = "/";
 
 let canTrade        = false;
 let profitSharePct  = 50.0;   // platform's share, set after dashboard load
+let _isAdmin        = false;  // set after dashboard load; gates admin-only UI
 
 document.getElementById("logoutBtn").addEventListener("click", () => {
   localStorage.removeItem("token"); window.location.href = "/";
@@ -521,6 +536,7 @@ async function loadDashboard() {
 
     canTrade       = !!data.can_trade;
     profitSharePct = data.profit_share_pct ?? 50.0;
+    _isAdmin       = isAdmin;
 
     // Pre-fill calculator share field if present
     const shareInput = document.getElementById("calcSharePct");
@@ -528,6 +544,9 @@ async function loadDashboard() {
 
     if (!isAdmin) {
       hide("profileManageLink"); hide("profileActivityLink");
+      // Slot cards are admin-only — hide the whole section
+      const slotSection = document.getElementById("slotCardsSection");
+      if (slotSection) slotSection.style.display = "none";
     }
     setText("rolePill",        `Role: ${isAdmin ? "Admin" : "User"}`);
     setText("userRoleDisplay", isAdmin ? "Admin" : "User");
@@ -569,7 +588,12 @@ async function loadSlots() {
     const slots = data.slots || [];
     _slots = slots;
     setText("slotsPill", `Slots: ${slots.length}`);
-    container.innerHTML = slots.length ? slots.map(renderSlot).join("") : noSlotsHTML();
+    populateGlobalSlotDropdown(slots);
+    // Slot cards are admin-only; each card gets an empty right-column placeholder
+    // reserved for a future feature (the grid is already 2-column).
+    container.innerHTML = slots.length
+      ? slots.map(s => renderSlot(s) + `<div></div>`).join("")
+      : noSlotsHTML();
     populateMetricsSelector(slots);
     populateCalcSlotDropdown();
 
@@ -1199,16 +1223,45 @@ function noSlotsHTML(msg) {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// GLOBAL SLOT SELECTOR
+// ─────────────────────────────────────────────────────────────────
+function populateGlobalSlotDropdown(slots) {
+  const sel = document.getElementById("globalSlotSel");
+  if (!sel) return;
+  sel.innerHTML = slots.map(s =>
+    `<option value="${s.id}">Slot ${s.slot_number}${s.vps_host ? " · " + esc(s.vps_host) : ""}</option>`
+  ).join("") || '<option value="">No slots</option>';
+  // Default to first slot (slot_number 1 or the first in list)
+  if (!sel.value && slots.length) sel.value = slots[0].id;
+}
+
+function onGlobalSlotChange() {
+  const val = document.getElementById("globalSlotSel")?.value;
+  if (!val) return;
+  // Sync metrics slot selector and trigger reload
+  const mSel = document.getElementById("metricsSlotSel");
+  if (mSel && mSel.value !== val) { mSel.value = val; }
+  // Sync calc slot selector
+  const cSel = document.getElementById("scSlot");
+  if (cSel) cSel.value = val;
+  loadMetrics(false);
+}
+
+// ─────────────────────────────────────────────────────────────────
 // METRICS
 // ─────────────────────────────────────────────────────────────────
 function populateMetricsSelector(slots) {
   const sel = document.getElementById("metricsSlotSel");
   if (!sel) return;
-  const prev = sel.value;
   sel.innerHTML = slots.map(s =>
     `<option value="${s.id}">Slot ${s.slot_number}${s.vps_host ? " · " + esc(s.vps_host) : ""}</option>`
   ).join("");
-  if (prev) sel.value = prev;
+
+  // Keep metrics selector in sync with global selector
+  const globalSel = document.getElementById("globalSlotSel");
+  if (globalSel && globalSel.value) sel.value = globalSel.value;
+  else if (!sel.value && slots.length) sel.value = slots[0].id;
+
   const sec = document.getElementById("metricsSection");
   const wasHidden = !sec || sec.style.display === "none";
   if (sec) sec.style.display = slots.length ? "" : "none";
@@ -1217,6 +1270,10 @@ function populateMetricsSelector(slots) {
 }
 
 function onMetricsSel() {
+  // Keep global selector in sync when metrics selector changes
+  const mVal = document.getElementById("metricsSlotSel")?.value;
+  const gSel = document.getElementById("globalSlotSel");
+  if (gSel && mVal && gSel.value !== mVal) gSel.value = mVal;
   clearTimeout(window._metricsTid);
   window._metricsTid = setTimeout(() => loadMetrics(false), 250);
 }
@@ -1331,16 +1388,60 @@ function renderMetricsHTML(m) {
   // Store positions for close-position actions
   _metricsPositions = positions;
 
-  // Secondary account KPIs
+  // Aggregate swap sums across open positions
+  const todaySwapSum   = positions.reduce((s, p) => s + (p.today_swap  || 0), 0);
+  const weeklySwapSum  = positions.reduce((s, p) => s + (p.weekly_swap || 0), 0);
+  const monthlySwapSum = weeklySwapSum / 7 * 30;
+  const swapColor = (v) => v >= 0 ? "color:#3a7d44" : "color:#9a4a45";
+
+  // Update top-row Total Swap / Total ROI
+  const topStats = document.getElementById("metricsTopStats");
+  if (topStats) topStats.style.display = "flex";
+  const totalSwapEl = document.getElementById("metricsTotalSwapVal");
+  const totalROIEl  = document.getElementById("metricsTotalROIVal");
+  if (totalSwapEl) {
+    totalSwapEl.textContent = fmt(totalCycle);
+    totalSwapEl.style.color = totalCycle >= 0 ? "#3a7d44" : "#9a4a45";
+  }
+  if (totalROIEl) {
+    const roi = m.balance ? (totalCycle / m.balance * 100) : 0;
+    totalROIEl.textContent = roi.toFixed(2) + "%";
+    totalROIEl.style.color = roi >= 0 ? "#3a7d44" : "#9a4a45";
+  }
+
+  const floatPnl = (m.equity ?? m.balance) - (m.balance ?? 0);
+
+  // Secondary account KPIs — each card has an optional sub-row
   const kpiCards = [
-    { label:"Balance",          value: fmt(m.balance) },
-    { label:"Floating PnL",    value: fmt((m.equity ?? m.balance) - (m.balance ?? 0)), cls: ((m.equity ?? m.balance) - (m.balance ?? 0)) >= 0 ? "mv-green" : "mv-red" },
-    { label:"Margin",          value: fmt(m.margin)  },
-    { label:"Free Margin",     value: fmt(m.free_margin), cls:"mv-green" },
+    {
+      label: "Balance",     value: fmt(m.balance),
+      sub: "Actual Situation", subVal: fmt(totalCycle),
+      subStyle: swapColor(totalCycle),
+    },
+    {
+      label: "Floating PnL", value: fmt(floatPnl),
+      cls: floatPnl >= 0 ? "mv-green" : "mv-red",
+      sub: "Today Swap", subVal: fmt(todaySwapSum),
+      subStyle: swapColor(todaySwapSum),
+    },
+    {
+      label: "Margin",      value: fmt(m.margin),
+      sub: "Weekly Swap", subVal: fmt(weeklySwapSum),
+      subStyle: swapColor(weeklySwapSum),
+    },
+    {
+      label: "Free Margin", value: fmt(m.free_margin), cls: "mv-green",
+      sub: "Monthly Swap", subVal: fmt(monthlySwapSum),
+      subStyle: swapColor(monthlySwapSum),
+    },
   ].map(k => `
     <div class="metric-card">
       <div class="metric-label">${k.label}</div>
       <div class="metric-value ${k.cls||""}" style="font-size:18px">${esc(k.value)}</div>
+      <div style="margin-top:7px;padding-top:7px;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:4px">
+        <div style="font-size:11px;color:var(--muted)">${k.sub}</div>
+        <div style="font-size:12px;font-weight:700;${k.subStyle}">${esc(k.subVal)}</div>
+      </div>
     </div>`).join("");
 
   // Positions table rows
@@ -1389,8 +1490,7 @@ function renderMetricsHTML(m) {
         ★ Today is Wednesday — triple swap applies</div>`
     : "";
 
-  return `
-    <div class="metrics-grid" style="margin-bottom:16px">${kpiCards}</div>
+  const positionsSection = _isAdmin ? `
     <div class="calc-card" style="margin-top:0">
       <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;flex-wrap:wrap">
         <div style="font-size:13px;font-weight:700;color:var(--text)">Active Positions</div>
@@ -1418,7 +1518,11 @@ function renderMetricsHTML(m) {
           <tfoot>${summaryRow}</tfoot>
         </table>
       </div>
-    </div>`;
+    </div>` : "";
+
+  return `
+    <div class="metrics-grid" style="margin-bottom:16px">${kpiCards}</div>
+    ${positionsSection}`;
 }
 
 async function closePosition(positionId) {

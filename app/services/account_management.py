@@ -324,7 +324,7 @@ class MT5AccountManager:
     # =========================
     async def close_position(self, account_id: str, position_id: str) -> Dict:
         try:
-            connection = await rpc_pool.get_connection(account_id)
+            connection = await rpc_pool.get_connection(account_id, force=True)
             result = await asyncio.wait_for(
                 connection.close_position(position_id, {}),
                 timeout=15
