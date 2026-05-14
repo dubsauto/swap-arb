@@ -1588,7 +1588,7 @@ const scMoney = n => "$" + n.toLocaleString("en-US",{minimumFractionDigits:2,max
 const scPct   = n => (n>=0?"+":"")+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2})+"%";
 
 function scOnSlotChange() {
-  const slotId = parseInt(document.getElementById("scSlot")?.value);
+  const slotId = parseInt(document.getElementById("globalSlotSel")?.value);
   if (!slotId) return;
   const slot = _slots.find(s => s.id === slotId);
   if (!slot) return;
@@ -1600,7 +1600,7 @@ function scOnSlotChange() {
 }
 
 async function scFetch() {
-  const slotId = document.getElementById("scSlot")?.value;
+  const slotId = document.getElementById("globalSlotSel")?.value;
   const symbol = (document.getElementById("scSymbol")?.value || "").trim();
   const btn    = document.getElementById("scFetchBtn");
   if (!slotId) { alert("Select a slot first."); return; }
