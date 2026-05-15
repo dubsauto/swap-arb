@@ -11,6 +11,7 @@ from app.database import get_db
 from app.model import User, UserPermission, UserNotificationPrefs
 from app.auth import SECRET_KEY, ALGORITHM, get_current_user, security
 from app.services.account_management import account_manager
+from swaparb.dashboard_session import dashboard_session
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -156,7 +157,11 @@ async def get_slot_metrics(
             "login":      account.login,
         }
 
-    metrics = await account_manager.get_account_metrics(account.metaapi_account_id)
+    try:
+        conn = await dashboard_session.get_connection(user_id, account.metaapi_account_id)
+    except Exception:
+        conn = None
+    metrics = await account_manager.get_account_metrics(account.metaapi_account_id, connection=conn)
 
     # Reconcile MetaAPI transitional states against the user's DB intent.
     # When the user clicked Deploy, DB state is set to "deployed" immediately.
@@ -312,10 +317,15 @@ async def get_slot_calc_data(
     slave_symbol = map_entry.slave_symbol if map_entry else symbol
 
     # Master: spec + price + account info (parallel)
+    try:
+        conn_master = await dashboard_session.get_connection(user_id, master.metaapi_account_id)
+    except Exception:
+        conn_master = None
+
     master_spec, master_price, master_info = await asyncio.gather(
-        account_manager.get_symbol_spec(master.metaapi_account_id, symbol),
-        account_manager.get_symbol_price(master.metaapi_account_id, symbol),
-        account_manager.get_account_info(master.metaapi_account_id),
+        account_manager.get_symbol_spec(master.metaapi_account_id, symbol, connection=conn_master),
+        account_manager.get_symbol_price(master.metaapi_account_id, symbol, connection=conn_master),
+        account_manager.get_account_info(master.metaapi_account_id, connection=conn_master),
     )
 
     if master_spec.get("error"):
@@ -325,9 +335,13 @@ async def get_slot_calc_data(
     slave_price: dict = {}
     slave_spec: dict = {}
     if slave and slave.metaapi_account_id and (slave.state or "").upper() == "DEPLOYED":
+        try:
+            conn_slave = await dashboard_session.get_connection(user_id, slave.metaapi_account_id)
+        except Exception:
+            conn_slave = None
         slave_price, slave_spec = await asyncio.gather(
-            account_manager.get_symbol_price(slave.metaapi_account_id, slave_symbol),
-            account_manager.get_symbol_spec(slave.metaapi_account_id, slave_symbol),
+            account_manager.get_symbol_price(slave.metaapi_account_id, slave_symbol, connection=conn_slave),
+            account_manager.get_symbol_spec(slave.metaapi_account_id, slave_symbol, connection=conn_slave),
         )
 
     # Auto-detect positive swap direction
@@ -415,11 +429,15 @@ async def get_symbol_spec(
             continue
         if (master.state or "").upper() != "DEPLOYED":
             continue
-        spec = await account_manager.get_symbol_spec(master.metaapi_account_id, symbol)
+        try:
+            conn = await dashboard_session.get_connection(user_id, master.metaapi_account_id)
+        except Exception:
+            conn = None
+        spec = await account_manager.get_symbol_spec(master.metaapi_account_id, symbol, connection=conn)
         if spec and not spec.get("error"):
             # Also fetch live bid/ask so frontend can compute spread pips
             try:
-                price = await account_manager.get_symbol_price(master.metaapi_account_id, symbol)
+                price = await account_manager.get_symbol_price(master.metaapi_account_id, symbol, connection=conn)
                 if price and not price.get("error"):
                     spec["bid"] = price.get("bid")
                     spec["ask"] = price.get("ask")

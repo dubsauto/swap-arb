@@ -1,82 +1,173 @@
 # swaparb/positions_tracker.py
 #
-# Standalone safety-net process.
-# Polls master accounts via RPC (no streaming) and verifies that every open
-# master position has been replicated to all slave accounts within
-# REPLICATION_WINDOW seconds.  If replication is incomplete after that window,
-# it closes the master trade AND every slave that did receive the copy.
+# Standalone safety-net process — fully independent of listener_manager.
 #
-# Run standalone:
-#   python -m swaparb.positions_tracker
-# Or import and call positions_tracker.run() inside an asyncio event loop.
+# Design:
+#   - One MetaApi instance per user (isolated, same pattern as dashboard_session).
+#   - RPC connections only — no dependency on rpc_pool or streaming.
+#   - Runs per-user in parallel every POLL_INTERVAL seconds.
+#   - For each user: check all their master accounts via RPC get_positions().
+#   - If a master position is not replicated to every slave within
+#     REPLICATION_WINDOW seconds → emergency-close master + any slaves that
+#     did receive the copy.
+#   - On any RPC failure/timeout → destroy that user's session immediately;
+#     next poll creates a fresh MetaApi + connections.
 
 import asyncio
 import os
 import sys
 from datetime import datetime
-from typing import List, Dict
+from typing import Dict, List, Set
 
-from sqlalchemy.orm import Session
+from metaapi_cloud_sdk import MetaApi
 
-# Ensure project root is importable when run as __main__
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from app.database import SessionLocal
-from app.model import (
-    TradingAccount,
-    CopyRelationship,
-    CopyTradeLink,
-    TrackedPosition,
-)
-from app.services.rpc_pool import rpc_pool
+from app.model import TradingAccount, CopyRelationship, CopyTradeLink, TrackedPosition
 
 # ─── Tuning ────────────────────────────────────────────────────────────────
 REPLICATION_WINDOW: int = int(os.getenv("TRACKER_REPLICATION_WINDOW", "10"))
-POLL_INTERVAL: int = int(os.getenv("TRACKER_POLL_INTERVAL", "5"))
-RPC_TIMEOUT: int = 8
-CLOSE_TIMEOUT: int = 15
+POLL_INTERVAL: int      = int(os.getenv("TRACKER_POLL_INTERVAL", "5"))
+CONNECT_TIMEOUT: int    = 20
+RPC_TIMEOUT: int        = 8
+CLOSE_TIMEOUT: int      = 15
 # ───────────────────────────────────────────────────────────────────────────
 
+
+def _new_api() -> MetaApi:
+    token = os.getenv("ACCESS_TOKEN")
+    if not token:
+        raise ValueError("ACCESS_TOKEN is not set")
+    return MetaApi(token)
+
+
+# ─── Per-user RPC session ──────────────────────────────────────────────────
+
+class _TrackerUserSession:
+    def __init__(self, user_id: int):
+        self.user_id = user_id
+        self._api = _new_api()
+        print(f"[Tracker] Fresh MetaApi → user={user_id}")
+        self._connections: Dict[str, object] = {}
+        self._lock = asyncio.Lock()
+        self._account_locks: Dict[str, asyncio.Lock] = {}
+
+    async def _get_account_lock(self, account_id: str) -> asyncio.Lock:
+        async with self._lock:
+            if account_id not in self._account_locks:
+                self._account_locks[account_id] = asyncio.Lock()
+            return self._account_locks[account_id]
+
+    async def get_connection(self, account_id: str):
+        async with self._lock:
+            conn = self._connections.get(account_id)
+            if conn is not None:
+                return conn
+
+        acc_lock = await self._get_account_lock(account_id)
+        async with acc_lock:
+            async with self._lock:
+                conn = self._connections.get(account_id)
+                if conn is not None:
+                    return conn
+
+            print(f"[Tracker] Building RPC → user={self.user_id} account={account_id}")
+            account = await self._api.metatrader_account_api.get_account(account_id)
+            conn = account.get_rpc_connection()
+            await asyncio.wait_for(conn.connect(), timeout=CONNECT_TIMEOUT)
+
+            async with self._lock:
+                self._connections[account_id] = conn
+
+            print(f"[Tracker] RPC ready → user={self.user_id} account={account_id}")
+            return conn
+
+    async def destroy(self):
+        print(f"[Tracker] Destroying session → user={self.user_id}")
+        async with self._lock:
+            conns = list(self._connections.values())
+            self._connections.clear()
+
+        for conn in conns:
+            try:
+                await asyncio.wait_for(conn.close(), timeout=3)
+            except Exception:
+                pass
+
+        try:
+            if hasattr(self._api, "close"):
+                result = self._api.close()
+                if asyncio.iscoroutine(result):
+                    await asyncio.wait_for(result, timeout=5)
+        except Exception:
+            pass
+        print(f"[Tracker] Session destroyed → user={self.user_id}")
+
+
+class _TrackerSessionManager:
+    def __init__(self):
+        self._sessions: Dict[int, _TrackerUserSession] = {}
+        self._lock = asyncio.Lock()
+
+    async def get_connection(self, user_id: int, account_id: str):
+        async with self._lock:
+            if user_id not in self._sessions:
+                self._sessions[user_id] = _TrackerUserSession(user_id)
+        return await self._sessions[user_id].get_connection(account_id)
+
+    async def destroy_session(self, user_id: int):
+        async with self._lock:
+            session = self._sessions.pop(user_id, None)
+        if session:
+            await session.destroy()
+
+
+_sessions = _TrackerSessionManager()
+
+
+# ─── Tracker ──────────────────────────────────────────────────────────────
 
 class PositionsTracker:
     def __init__(self):
         self._running = False
-        # Prevents concurrent emergency-close coroutines for the same ticket
         self._intervening: set = set()
 
-    # ─── RPC helpers ───────────────────────────────────────────────────────
+    # ── RPC helpers ───────────────────────────────────────────────────────
 
-    async def _get_positions(self, metaapi_account_id: str) -> List[dict]:
+    async def _get_positions(self, user_id: int, meta_id: str) -> List[dict]:
         try:
             conn = await asyncio.wait_for(
-                rpc_pool.get_connection(metaapi_account_id), timeout=RPC_TIMEOUT
+                _sessions.get_connection(user_id, meta_id),
+                timeout=CONNECT_TIMEOUT + 2,
             )
-            positions = await asyncio.wait_for(
-                conn.get_positions(), timeout=RPC_TIMEOUT
-            )
-            return positions or []
-        except Exception as e:
-            print(f"[Tracker] get_positions failed {metaapi_account_id}: {e}")
+            return await asyncio.wait_for(conn.get_positions(), timeout=RPC_TIMEOUT)
+        except BaseException as e:
+            print(f"[Tracker] get_positions failed user={user_id} account={meta_id}: {type(e).__name__}: {e}")
+            await _sessions.destroy_session(user_id)
             return []
 
-    async def _close_position(self, metaapi_account_id: str, ticket: str) -> bool:
+    async def _close_position(self, user_id: int, meta_id: str, ticket: str) -> bool:
         try:
             conn = await asyncio.wait_for(
-                rpc_pool.get_connection(metaapi_account_id, force=True), timeout=RPC_TIMEOUT
+                _sessions.get_connection(user_id, meta_id),
+                timeout=CONNECT_TIMEOUT + 2,
             )
             await asyncio.wait_for(conn.close_position(ticket), timeout=CLOSE_TIMEOUT)
             return True
-        except Exception as e:
-            print(f"[Tracker] close_position failed {metaapi_account_id}/{ticket}: {e}")
+        except BaseException as e:
+            print(f"[Tracker] close_position failed user={user_id} account={meta_id} ticket={ticket}: {type(e).__name__}: {e}")
+            await _sessions.destroy_session(user_id)
             return False
 
-    # ─── Emergency close ───────────────────────────────────────────────────
+    # ── Emergency close ───────────────────────────────────────────────────
 
     async def _emergency_close(
         self,
+        user_id: int,
         master_acc: TradingAccount,
         master_ticket: str,
         slave_links: List[CopyTradeLink],
@@ -92,7 +183,6 @@ class PositionsTracker:
                 f"ticket={master_ticket} slaves={[l.slave_account_id for l in slave_links]}"
             )
 
-            # Load slave account objects
             slave_ids = [l.slave_account_id for l in slave_links if l.slave_ticket]
             db = SessionLocal()
             try:
@@ -105,13 +195,10 @@ class PositionsTracker:
             finally:
                 db.close()
 
-            # Build parallel close tasks
             tasks = []
             meta = []
 
-            tasks.append(
-                self._close_position(master_acc.metaapi_account_id, master_ticket)
-            )
+            tasks.append(self._close_position(user_id, master_acc.metaapi_account_id, master_ticket))
             meta.append(("master", master_acc.id, master_ticket))
 
             for link in slave_links:
@@ -120,11 +207,7 @@ class PositionsTracker:
                 slave_acc = slave_accs.get(link.slave_account_id)
                 if not slave_acc or not slave_acc.metaapi_account_id:
                     continue
-                tasks.append(
-                    self._close_position(
-                        slave_acc.metaapi_account_id, link.slave_ticket
-                    )
-                )
+                tasks.append(self._close_position(user_id, slave_acc.metaapi_account_id, link.slave_ticket))
                 meta.append(("slave", link.slave_account_id, link.slave_ticket))
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -136,7 +219,6 @@ class PositionsTracker:
                     f"{'OK' if ok else f'FAILED ({result})'}"
                 )
 
-            # Update DB
             write_db = SessionLocal()
             try:
                 links_to_close = (
@@ -176,14 +258,15 @@ class PositionsTracker:
         finally:
             self._intervening.discard(key)
 
-    # ─── Per-master check ──────────────────────────────────────────────────
+    # ── Per-master check ──────────────────────────────────────────────────
 
     async def _check_master(
         self,
+        user_id: int,
         master_acc: TradingAccount,
-        expected_slave_ids: set,
+        expected_slave_ids: Set,
     ):
-        positions = await self._get_positions(master_acc.metaapi_account_id)
+        positions = await self._get_positions(user_id, master_acc.metaapi_account_id)
         if not positions:
             return
 
@@ -193,7 +276,6 @@ class PositionsTracker:
             for pos in positions:
                 ticket = str(pos.get("id") or pos.get("ticket"))
 
-                # Register on first sight
                 tracked = (
                     db.query(TrackedPosition)
                     .filter_by(
@@ -214,7 +296,6 @@ class PositionsTracker:
                         db.commit()
                     except Exception:
                         db.rollback()
-                    # Too fresh — skip this cycle
                     continue
 
                 if tracked.closed_by_tracker:
@@ -222,9 +303,8 @@ class PositionsTracker:
 
                 age = (now - tracked.first_seen_at).total_seconds()
                 if age < REPLICATION_WINDOW:
-                    continue  # still within grace window
+                    continue
 
-                # Check which slaves have a confirmed CopyTradeLink
                 links = (
                     db.query(CopyTradeLink)
                     .filter(
@@ -246,7 +326,7 @@ class PositionsTracker:
                     f"age={age:.1f}s — missing slaves {missing} → scheduling close"
                 )
                 asyncio.create_task(
-                    self._emergency_close(master_acc, ticket, links)
+                    self._emergency_close(user_id, master_acc, ticket, links)
                 )
 
         except Exception as e:
@@ -254,12 +334,27 @@ class PositionsTracker:
         finally:
             db.close()
 
-    # ─── Main poll loop ────────────────────────────────────────────────────
+    # ── Per-user check (masters run in parallel) ──────────────────────────
+
+    async def _check_user(
+        self,
+        user_id: int,
+        master_accs: List[TradingAccount],
+        master_slaves: Dict[int, Set],
+    ):
+        await asyncio.gather(
+            *[
+                self._check_master(user_id, acc, master_slaves[acc.id])
+                for acc in master_accs
+            ],
+            return_exceptions=True,
+        )
+
+    # ── Full poll cycle ───────────────────────────────────────────────────
 
     async def _check_once(self):
         db = SessionLocal()
         try:
-            # Find all masters that have active copy relationships
             rel_rows = (
                 db.query(
                     CopyRelationship.master_account_id,
@@ -269,8 +364,7 @@ class PositionsTracker:
                 .all()
             )
 
-            # Build master → expected slave set mapping (skip NULL slave_account_id rows)
-            master_slaves: Dict[int, set] = {}
+            master_slaves: Dict[int, Set] = {}
             for master_id, slave_id in rel_rows:
                 if slave_id is not None:
                     master_slaves.setdefault(master_id, set()).add(slave_id)
@@ -283,22 +377,30 @@ class PositionsTracker:
                 .filter(
                     TradingAccount.id.in_(master_slaves.keys()),
                     TradingAccount.state == "deployed",
-                    TradingAccount.listener_active == True,
                     TradingAccount.metaapi_account_id.isnot(None),
                 )
                 .all()
             )
+
+            # Group by owner so each user runs in parallel with its own session
+            user_masters: Dict[int, List[TradingAccount]] = {}
+            for acc in masters:
+                uid = acc.owner_user_id
+                if uid is not None:
+                    user_masters.setdefault(uid, []).append(acc)
+
         finally:
             db.close()
 
-        # Check all masters concurrently
         await asyncio.gather(
             *[
-                self._check_master(acc, master_slaves[acc.id])
-                for acc in masters
+                self._check_user(user_id, accs, master_slaves)
+                for user_id, accs in user_masters.items()
             ],
             return_exceptions=True,
         )
+
+    # ── Main loop ─────────────────────────────────────────────────────────
 
     async def run(self):
         self._running = True
@@ -306,8 +408,6 @@ class PositionsTracker:
             f"[Tracker] Starting — REPLICATION_WINDOW={REPLICATION_WINDOW}s "
             f"POLL_INTERVAL={POLL_INTERVAL}s"
         )
-
-        rpc_pool.start_watchdog()
 
         while self._running:
             try:
@@ -327,7 +427,5 @@ if __name__ == "__main__":
     from app.model import Base
     from app.database import engine
 
-    # Ensure tracked_positions table exists
     Base.metadata.create_all(bind=engine)
-
     asyncio.run(positions_tracker.run())

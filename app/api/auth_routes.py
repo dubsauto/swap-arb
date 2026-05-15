@@ -9,6 +9,7 @@ from typing import Optional
 from app.database import get_db
 from app.model import User, UserPermission, ReferralCode
 from app.auth import verify_password, create_access_token, hash_password, decode_token
+from swaparb.dashboard_session import dashboard_session
 
 load_dotenv()
 
@@ -83,6 +84,18 @@ async def login(
         "access_token": token,
         "role":         user.role,
     }
+
+
+# =========================
+# LOGOUT
+# =========================
+
+@router.post("/logout")
+async def logout(
+    current_user: User = Depends(get_current_user),
+):
+    await dashboard_session.on_logout(current_user.id)
+    return {"ok": True}
 
 
 # =========================

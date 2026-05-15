@@ -5,7 +5,8 @@
       "Bash(findstr /v \"env\\\\\\\\\")",
       "Bash(findstr \".py$\")",
       "Bash(findstr /v \"__pycache__\")",
-      "Bash(ls \"C:\\\\Users\\\\Adaba\\\\Downloads\\\\\" | grep -v swap-arb | head -20)"
+      "Bash(ls \"C:\\\\Users\\\\Adaba\\\\Downloads\\\\\" | grep -v swap-arb | head -20)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp"
     ]
   }
 }

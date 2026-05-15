@@ -10,9 +10,9 @@ from app.auth import SECRET_KEY, ALGORITHM, security, get_current_user
 from app.database import get_db
 from app.model import TradingAccount, User, CopyRelationship, BotLog, CopyTradeLink, AccountLot
 from app.services.logger import log
-from app.services.account_management import account_manager   
+from app.services.account_management import account_manager
 from app.services.trading import trader
-from app.services.rpc_pool import rpc_pool
+from swaparb.dashboard_session import dashboard_session
 
 router = APIRouter(prefix="/mt5", tags=["MT5 Accounts"])
 
@@ -97,28 +97,42 @@ async def get_mt5_accounts(
         # STEP 4: ASYNC METRICS (CLEAN + FAST)
         # =========================
         import asyncio
+        had_real_failure = False
+
         async def fetch_metrics(acc):
+            nonlocal had_real_failure
+            meta_id = acc.get("metaapi_account_id")
             try:
                 deployed = (
                     acc["state"].lower() == "deployed"
                     and acc["online"]
-                    and acc["metaapi_account_id"]
+                    and meta_id
                 )
 
                 if not deployed:
                     return {}
 
+                connection = await asyncio.wait_for(
+                    dashboard_session.get_connection(user_id, meta_id),
+                    timeout=25
+                )
                 return await asyncio.wait_for(
-                    account_manager.get_account_metrics(acc["metaapi_account_id"]),
-                    timeout=6
+                    account_manager.get_account_metrics(meta_id, connection=connection),
+                    timeout=10
                 )
 
-            except BaseException:   # catches CancelledError
+            except BaseException as e:
+                print(f"[Metrics] Failed for {meta_id}: {type(e).__name__}: {e}")
+                had_real_failure = True
                 return {}
 
         tasks = [fetch_metrics(acc) for acc in account_data]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        if had_real_failure:
+            print(f"[Metrics] Resetting session for user={user_id} after failure")
+            await dashboard_session.destroy_session(user_id)
 
         # =========================
         # STEP 5: BUILD RESPONSE
@@ -199,10 +213,6 @@ async def deploy_mt5_account(
             message="Deploy request initiated"
         )
 
-        # Invalidate any cached account/connection objects before deploying
-        if trading_account.metaapi_account_id:
-            await rpc_pool.invalidate(trading_account.metaapi_account_id)
-
         result = await account_manager.deploy(trading_account.metaapi_account_id)
         print(result)
 
@@ -211,9 +221,6 @@ async def deploy_mt5_account(
             trading_account.connection_status = "connected"
             trading_account.last_connected_at = datetime.utcnow()
             db.commit()
-            # Evict again post-deploy so the next get_account fetches fresh
-            # state (DEPLOYED) from MetaAPI rather than stale cached state
-            await rpc_pool.invalidate(trading_account.metaapi_account_id)
 
             # ✅ SUCCESS LOG
             log(db=db,
@@ -292,8 +299,6 @@ async def undeploy_mt5_account(
             trading_account.state = "undeployed"
             trading_account.connection_status = "disconnected"
             db.commit()
-            # ✅ Evict the now-dead connection from the pool
-            await rpc_pool.invalidate(trading_account.metaapi_account_id)
 
             # ✅ SUCCESS LOG
             log(db=db,
@@ -933,9 +938,7 @@ async def quick_trade(
         # SL/TP PROCESSING
         # =========================
         try:
-            # ✅ Use shared pool directly — no private method access
-            print(f"[Route] rpc_pool id: {id(rpc_pool)}")
-            connection = await rpc_pool.get_connection(account.metaapi_account_id)
+            connection = await dashboard_session.get_connection(user_id, account.metaapi_account_id)
 
             symbol_spec = await connection.get_symbol_specification(symbol)
             symbol_price = await connection.get_symbol_price(symbol)
@@ -1031,14 +1034,14 @@ async def quick_trade(
         # =========================
         if action == "buy":
             result = await trader.buy(
-                account.metaapi_account_id,
+                connection,
                 symbol, volume, sl, tp,
                 comment="QuickTrade",
                 magic=magic
             )
         else:
             result = await trader.sell(
-                account.metaapi_account_id,
+                connection,
                 symbol, volume, sl, tp,
                 comment="QuickTrade",
                 magic=magic
@@ -1129,10 +1132,8 @@ async def close_position(
         if not account.metaapi_account_id:
             raise HTTPException(status_code=400, detail="Account not connected")
 
-        result = await trader.close_position(
-            account.metaapi_account_id,
-            position_id
-        )
+        connection = await dashboard_session.get_connection(user_id, account.metaapi_account_id)
+        result = await trader.close_position(connection, position_id)
 
         if not result.get("success"):
             raise HTTPException(status_code=500, detail=result.get("error"))
@@ -1246,11 +1247,7 @@ async def get_positions(
 
         import asyncio
 
-        # Add timeout to prevent hanging forever
-        connection = await asyncio.wait_for(
-            rpc_pool.get_connection(account.metaapi_account_id),
-            timeout=20
-        )
+        connection = await dashboard_session.get_connection(user_id, account.metaapi_account_id)
 
         positions = await asyncio.wait_for(
             connection.get_positions(),
@@ -1259,22 +1256,16 @@ async def get_positions(
         print(f"✅ Retrieved {len(positions)} positions for account {account_id}")
         return {"success": True, "positions": positions}
 
-    except asyncio.TimeoutError:
-        print(f"⏰ Timeout while fetching positions for account {account_id}")
+    except (asyncio.TimeoutError, asyncio.CancelledError) as e:
+        kind = "Timeout" if isinstance(e, asyncio.TimeoutError) else "Cancelled"
+        print(f"⏰ {kind} fetching positions for account {account_id} — resetting session")
+        await dashboard_session.destroy_session(user_id)
         return {
             "success": False,
             "positions": [],
-            "error": "MetaApi not ready (connection timeout)"
+            "error": "MetaApi not ready — retrying on next request"
         }
 
-    except asyncio.CancelledError:
-        print(f"❌ Fetching positions cancelled for account {account_id}")
-        return {
-            "success": False,
-            "positions": [],
-            "error": "MetaApi connection was cancelled"
-        }
-    
     except Exception as e:
         print(f"❌ Error fetching positions for account {account_id}: {e}")
         return {

@@ -7,7 +7,6 @@ from app.model import TradingAccount, CopyRelationship, UserSlot
 from swaparb.listener import MetaApiTradeListener
 from swaparb.api_client import get_metaapi_client, reset_metaapi_client
 from swaparb.connection_store import set_connection, get_connection, remove_connection, get_all_connections
-from app.services.rpc_pool import rpc_pool
 import time
 
 
@@ -197,11 +196,6 @@ class ListenerManager:
         # Reset MetaApi client — zombie state likely after long outage
         print("[LM] Resetting MetaApi client after global outage...")
         await self._reset_sdk_safely()
-
-        # Let rpc_pool rebuild connections immediately — its build-fail cooldowns
-        # were set during the outage and would otherwise block trade copying for
-        # up to _build_fail_cooldown seconds after the network returns.
-        rpc_pool.clear_cooldowns()
 
         self._global_outage = False
 

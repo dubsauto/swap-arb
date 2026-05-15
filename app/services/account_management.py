@@ -1,10 +1,29 @@
 # app/services/account_management.py
+#
+# Administrative MetaAPI operations (create, deploy, undeploy, remove, update).
+# Uses a shared admin SDK instance for account management — no rpc_pool.
+# Data methods (metrics, symbol spec/price, account info) accept a pre-built
+# connection from dashboard_session so the web service never touches rpc_pool.
 
 import asyncio
 import time
 from datetime import datetime, timezone
-from typing import Optional, Dict, Any, List
-from app.services.rpc_pool import rpc_pool
+from typing import Optional, Dict, List
+
+from swaparb.api_client import get_metaapi_client
+
+# Shared SDK instance for admin calls only (no RPC connections)
+_api = None
+
+def _get_admin_api():
+    global _api
+    if _api is None:
+        _api = get_metaapi_client()
+    return _api
+
+async def _get_account(account_id: str):
+    api = _get_admin_api()
+    return await api.metatrader_account_api.get_account(account_id)
 
 
 class MT5AccountManager:
@@ -26,7 +45,7 @@ class MT5AccountManager:
         magic: Optional[int] = None
     ) -> Dict:
         try:
-            api = await rpc_pool._get_api()
+            api = _get_admin_api()
             accounts = await api.metatrader_account_api.get_accounts_with_infinite_scroll_pagination()
 
             for acc in accounts:
@@ -45,14 +64,9 @@ class MT5AccountManager:
                 'magic': 0 if manual_trades else (magic or 0)
             }
 
-            api = await rpc_pool._get_api()
             new_account = await api.metatrader_account_api.create_account(account_data)
 
-            # Pre-cache the account object in the pool
-            rpc_pool._accounts[new_account.id] = new_account
-
             # Force undeploy — MetaAPI auto-deploys on creation.
-            # Users must explicitly click Deploy before the account goes live.
             try:
                 if new_account.state != "UNDEPLOYED":
                     await new_account.undeploy()
@@ -69,9 +83,8 @@ class MT5AccountManager:
     # =========================
     async def remove_account(self, account_id: str) -> Dict:
         try:
-            account = await rpc_pool.get_account(account_id)
+            account = await _get_account(account_id)
             await account.remove()
-            await rpc_pool.invalidate(account_id)
             return {"success": True}
         except Exception as e:
             if "not found" in str(e).lower():
@@ -83,7 +96,7 @@ class MT5AccountManager:
     # =========================
     async def update_account(self, account_id: str, update_data: Dict) -> Dict:
         try:
-            account = await rpc_pool.get_account(account_id)
+            account = await _get_account(account_id)
             await account.update(update_data)
             return {"success": True}
         except Exception as e:
@@ -94,7 +107,7 @@ class MT5AccountManager:
     # =========================
     async def deploy(self, account_id: str) -> Dict:
         try:
-            account = await rpc_pool.get_account(account_id)
+            account = await _get_account(account_id)
             if account.state != "DEPLOYED":
                 await account.deploy()
             return {"success": True}
@@ -106,7 +119,7 @@ class MT5AccountManager:
     # =========================
     async def undeploy(self, account_id: str) -> Dict:
         try:
-            account = await rpc_pool.get_account(account_id)
+            account = await _get_account(account_id)
             if account.state != "UNDEPLOYED":
                 await account.undeploy()
             return {"success": True}
@@ -116,40 +129,23 @@ class MT5AccountManager:
     # =========================
     # METRICS
     # =========================
-    async def get_account_metrics(self, account_id: str):
+    async def get_account_metrics(self, account_id: str, connection=None) -> Dict:
+        """
+        Fetch balance/equity/positions for dashboard display.
+        Pass the user's already-open dashboard_session connection.
+        Returns {} if no connection is provided or on error.
+        """
         async with self._semaphore:
             now = time.time()
-
             cached = self._metrics_cache.get(account_id)
-            # Only serve cache for real metrics, never for state-only stubs
             if cached and now - cached["ts"] < 5 and "_account_state" not in cached["data"]:
                 return cached["data"]
 
+            if not connection:
+                print(f"[Metrics] No connection provided → {account_id}, returning empty")
+                return {}
+
             try:
-                # Use cached account object if available — avoids a remote
-                # get_account() call when the object is already in the pool.
-                # If not cached, fetch it (one API call), then reload for state.
-                account = await rpc_pool.get_account(account_id)
-
-                # Always reload — ensures state is fresh after deploy/undeploy
-                try:
-                    await asyncio.wait_for(account.reload(), timeout=8)
-                except Exception as re:
-                    print(f"[Metrics] reload warning {account_id}: {re}")
-
-                dedicated_ip = None
-                try:
-                    dedicated_ip = getattr(account, "allocate_dedicated_ip", None)
-                except Exception:
-                    pass
-
-                current_state = (account.state or "").upper()
-                if current_state != "DEPLOYED":
-                    # Return structured state so dashboard can show the right message
-                    return {"_account_state": current_state.lower()}
-
-                connection = await rpc_pool.get_connection(account_id)
-
                 start = time.perf_counter()
 
                 info, positions = await asyncio.gather(
@@ -159,8 +155,10 @@ class MT5AccountManager:
 
                 latency_ms = (time.perf_counter() - start) * 1000
 
-                now_dt       = datetime.now(timezone.utc)
+                now_dt = datetime.now(timezone.utc)
                 is_wednesday = now_dt.weekday() == 2  # 0=Mon … 6=Sun
+
+                dedicated_ip = None
 
                 positions_out: List[Dict] = []
                 total_cycle_swap = 0.0
@@ -170,7 +168,6 @@ class MT5AccountManager:
                     cycle_swap = float(pos.get("swap") or 0)
                     total_cycle_swap += cycle_swap
 
-                    # Estimate daily avg from open time
                     open_raw  = pos.get("time") or pos.get("openTime")
                     days_open = 1.0
                     if open_raw:
@@ -186,7 +183,7 @@ class MT5AccountManager:
 
                     daily_avg   = cycle_swap / days_open
                     today_swap  = daily_avg * 3 if is_wednesday else daily_avg
-                    weekly_swap = daily_avg * 7   # 4 normal + 1 Wednesday(×3)
+                    weekly_swap = daily_avg * 7
 
                     pnl = pos.get("profit")
                     positions_out.append({
@@ -220,20 +217,20 @@ class MT5AccountManager:
                 return result
 
             except asyncio.TimeoutError:
-                print(f"[Timeout] {account_id}")
+                print(f"[Metrics] Timeout → {account_id}")
                 return {}
             except Exception as e:
-                print(f"[Error] {account_id}: {e}")
+                print(f"[Metrics] Error → {account_id}: {e}")
                 return {}
-
 
     # =========================
     # SYMBOL SPECIFICATION
     # =========================
-    async def get_symbol_spec(self, account_id: str, symbol: str) -> Dict:
-        """Fetch swap rates, contract details and commission for a symbol from a deployed account."""
+    async def get_symbol_spec(self, account_id: str, symbol: str, connection=None) -> Dict:
+        """Fetch swap rates, contract details and commission for a symbol."""
         try:
-            connection = await rpc_pool.get_connection(account_id)
+            if not connection:
+                return {"error": "No connection available"}
             spec = await asyncio.wait_for(
                 connection.get_symbol_specification(symbol),
                 timeout=8,
@@ -241,7 +238,6 @@ class MT5AccountManager:
             if not spec:
                 return {"error": "Symbol not found"}
 
-            # Commission extraction — try multiple MetaAPI field structures
             commission_per_lot = None
             comm_raw = spec.get("commissions") or spec.get("dealCommissions")
             if isinstance(comm_raw, list) and comm_raw:
@@ -280,10 +276,11 @@ class MT5AccountManager:
     # =========================
     # ACCOUNT INFO
     # =========================
-    async def get_account_info(self, account_id: str) -> Dict:
-        """Fetch basic account info (balance, leverage) from a deployed account."""
+    async def get_account_info(self, account_id: str, connection=None) -> Dict:
+        """Fetch basic account info (balance, leverage)."""
         try:
-            connection = await rpc_pool.get_connection(account_id)
+            if not connection:
+                return {}
             info = await asyncio.wait_for(
                 connection.get_account_information(),
                 timeout=5,
@@ -301,10 +298,11 @@ class MT5AccountManager:
     # =========================
     # SYMBOL PRICE (live bid/ask)
     # =========================
-    async def get_symbol_price(self, account_id: str, symbol: str) -> Dict:
-        """Fetch live bid/ask price for a symbol from a deployed account."""
+    async def get_symbol_price(self, account_id: str, symbol: str, connection=None) -> Dict:
+        """Fetch live bid/ask price for a symbol."""
         try:
-            connection = await rpc_pool.get_connection(account_id)
+            if not connection:
+                return {"error": "No connection available"}
             price = await asyncio.wait_for(
                 connection.get_symbol_price(symbol),
                 timeout=8,
@@ -322,9 +320,10 @@ class MT5AccountManager:
     # =========================
     # CLOSE POSITION
     # =========================
-    async def close_position(self, account_id: str, position_id: str) -> Dict:
+    async def close_position(self, account_id: str, position_id: str, connection=None) -> Dict:
         try:
-            connection = await rpc_pool.get_connection(account_id, force=True)
+            if not connection:
+                return {"success": False, "message": "No connection available"}
             result = await asyncio.wait_for(
                 connection.close_position(position_id, {}),
                 timeout=15

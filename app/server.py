@@ -10,6 +10,8 @@ from app.api.admin_routes import router as admin_router
 from app.api.dashboard_routes import router as dashboard_router
 from app.api.metaconnect_routes import router as metaconnect_router
 
+from swaparb.dashboard_session import dashboard_session
+
 load_dotenv()
 
 app = FastAPI(title="Hedge Bridge", version="2.0")
@@ -25,6 +27,7 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def startup_event():
     print("🚀 Starting up - Creating database tables if they don't exist...")
     await init_database()
+    dashboard_session.start()
     
 # =========================
 # SERVE PAGES (Static HTML)

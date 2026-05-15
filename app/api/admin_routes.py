@@ -15,12 +15,15 @@ from app.model import (
     ActiveUser,
     UserSlot,
     VpsAccount,
+    TradingAccount,
     NotificationSettings,
     UserNotificationPrefs,
     NotificationLog,
     DEFAULT_NOTIFICATION_TEMPLATE,
 )
 from app.schemas.account_schema import AllocateSlotRequest
+from swaparb.dashboard_session import dashboard_session
+from app.services.account_management import account_manager
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
@@ -157,13 +160,21 @@ def get_activity(hours: int = 24, db: Session = Depends(get_db), credentials: HT
         ActiveUser.online == True
     ).all()
 
+    # Build username → user_id map for active users
+    active_usernames = [u.username for u in active_users]
+    user_id_map = {
+        u.username: u.id
+        for u in db.query(User).filter(User.username.in_(active_usernames)).all()
+    }
+
     active_now = []
     for u in active_users:
         active_now.append({
+            "user_id":  user_id_map.get(u.username),
             "username": u.username,
-            "role": u.role,
-            "page": u.page,
-            "action": u.action
+            "role":     u.role,
+            "page":     u.page,
+            "action":   u.action,
         })
 
     # =========================
@@ -686,6 +697,109 @@ def get_notification_logs(
         }
         for l in logs
     ]}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ACCOUNT CARD — static slot info + live metrics
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.get("/users/{user_id}/slot-info")
+def admin_get_user_slot_info(
+    user_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    """Return static slot data (VPS, master/slave logins) — no MetaAPI call."""
+    _require_admin(credentials, db)
+
+    slots = db.query(UserSlot).filter_by(user_id=user_id).order_by(UserSlot.slot_number).all()
+    out = []
+    for s in slots:
+        vps = db.query(VpsAccount).get(s.vps_id) if s.vps_id else None
+        master = db.query(TradingAccount).get(s.master_account_id) if s.master_account_id else None
+        slave  = db.query(TradingAccount).get(s.slave_account_id)  if s.slave_account_id  else None
+        out.append({
+            "slot_id":     s.id,
+            "slot_number": s.slot_number,
+            "status":      s.status,
+            "vps_host":    vps.host if vps else None,
+            "master": {
+                "login":            master.login            if master else None,
+                "broker":           master.server           if master else None,
+                "state":            master.state            if master else None,
+                "metaapi_id":       master.metaapi_account_id if master else None,
+            },
+            "slave": {
+                "login":      slave.login   if slave else None,
+                "broker":     slave.server  if slave else None,
+                "state":      slave.state   if slave else None,
+                "metaapi_id": slave.metaapi_account_id if slave else None,
+            },
+        })
+    return {"slots": out}
+
+
+@router.get("/slots/{slot_id}/live-metrics")
+async def admin_get_slot_live_metrics(
+    slot_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    """Fetch live balance/equity/latency for both master and slave via admin's session."""
+    payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    admin_id = payload.get("user_id")
+    admin = db.query(User).filter_by(id=admin_id).first()
+    if not admin or admin.role != "admin":
+        raise HTTPException(403, "Admin access only")
+
+    slot = db.query(UserSlot).get(slot_id)
+    if not slot:
+        raise HTTPException(404, "Slot not found")
+
+    master = db.query(TradingAccount).get(slot.master_account_id) if slot.master_account_id else None
+    slave  = db.query(TradingAccount).get(slot.slave_account_id)  if slot.slave_account_id  else None
+
+    async def _fetch(acct):
+        if not acct or not acct.metaapi_account_id:
+            return {"error": "not linked"}
+        if (acct.state or "").lower() != "deployed":
+            return {"error": "not deployed"}
+        try:
+            conn = await dashboard_session.get_connection(admin_id, acct.metaapi_account_id)
+            m = await account_manager.get_account_metrics(acct.metaapi_account_id, connection=conn)
+            if not m:
+                return {"error": "no data"}
+            return {
+                "balance":    m.get("balance"),
+                "equity":     m.get("equity"),
+                "latency_ms": m.get("latency_ms"),
+            }
+        except Exception as e:
+            await dashboard_session.destroy_session(admin_id)
+            return {"error": str(e)}
+
+    import asyncio as _aio
+    master_metrics, slave_metrics = await _aio.gather(_fetch(master), _fetch(slave))
+
+    return {
+        "master": master_metrics,
+        "slave":  slave_metrics,
+    }
+
+
+@router.post("/session/release")
+async def admin_release_session(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    """Destroy the admin's MetaAPI session — called when admin leaves the page."""
+    payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+    admin_id = payload.get("user_id")
+    admin = db.query(User).filter_by(id=admin_id).first()
+    if not admin or admin.role != "admin":
+        raise HTTPException(403, "Admin access only")
+    await dashboard_session.destroy_session(admin_id)
+    return {"ok": True}
 
 
         # # =========================
